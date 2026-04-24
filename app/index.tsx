@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import PostaFooter from '../components/PostaFooter';
 import { useCreateSession } from '../hooks/useCreateSession';
-import { COLORS, SPACING, SHADOW } from '../constants/theme';
+import { COLORS, SPACING } from '../constants/theme';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -82,15 +82,18 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   onPress={handleStart}
                   activeOpacity={0.85}
-                  style={[styles.startBtn, { width: btnSize, height: btnSize }]}
                 >
-                  <Text style={styles.startBtnText}>TAP{'\n'}TO{'\n'}START</Text>
+                  <Image
+                    source={require('../assets/images/start_button.png')}
+                    style={{ width: btnSize, height: btnSize }}
+                    resizeMode="contain"
+                  />
                 </TouchableOpacity>
               )}
 
-              <Text style={[styles.price, { fontSize: Math.min(SW * 0.03, 32) }]}>
+              {/* <Text style={[styles.price, { fontSize: Math.min(SW * 0.03, 32) }]}>
                 Price: $3.50
-              </Text>
+              </Text> */}
             </View>
           </View>
         </View>
@@ -132,22 +135,6 @@ const styles = StyleSheet.create({
   rightCol: {
     alignItems: 'center',
     gap: SPACING.lg,
-  },
-  startBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    borderWidth: 3,
-    borderColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOW.md,
-  },
-  startBtnText: {
-    color: COLORS.primary,
-    fontSize: 28,
-    fontWeight: '900',
-    textAlign: 'center',
-    letterSpacing: 2,
   },
   price: {
     fontWeight: '800',
