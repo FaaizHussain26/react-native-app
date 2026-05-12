@@ -13,14 +13,14 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
-import { FilteredImage } from '../../components/FilteredImage';
+import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
 
 const { width: SW } = Dimensions.get('window');
 const CARD_W = Math.min(SW * 0.26, 280);
-const CARD_H = CARD_W * (470 / 330);
+const CARD_H = CARD_W * (6 / 4.25);
 
 const CONDITIONS = [
   'High quality print',
@@ -37,8 +37,6 @@ export default function ReviewScreen() {
   const imageUrl =
     croppedImage ||
     (sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : '');
-
-  const imgH = CARD_H - SPACING.lg * 4;
 
   const handleProceedToPayment = () => {
     router.push(`/kiosk/payment?session=${sessionId}`);
@@ -76,33 +74,13 @@ export default function ReviewScreen() {
               </View>
 
               {/* Front side */}
-              <View
-                style={[
-                  styles.postcard,
-                  styles.postcardFront,
-                  { width: CARD_W, height: CARD_H },
-                ]}
-              >
-                <View style={[styles.imgArea, { height: imgH }]}>
-                  {imageUrl ? (
-                    <FilteredImage
-                      uri={imageUrl}
-                      filter={selectedFilter}
-                      brightness={brightness}
-                      width={CARD_W - SPACING.md * 2}
-                      height={imgH}
-                    />
-                  ) : (
-                    <View style={[styles.imgPlaceholder, { height: imgH }]} />
-                  )}
-                </View>
-                <View style={styles.logoRow}>
-                  <Image
-                    source={require('../../assets/images/dbg-logo.png')}
-                    style={styles.dbgLogo}
-                    resizeMode="contain"
-                  />
-                </View>
+              <View style={[styles.postcard, { width: CARD_W, height: CARD_H }]}>
+                <PostcardPreview
+                  uri={imageUrl || null}
+                  filter={selectedFilter}
+                  brightness={brightness}
+                  width={CARD_W}
+                />
               </View>
             </View>
 

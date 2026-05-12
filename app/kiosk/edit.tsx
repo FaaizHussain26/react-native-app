@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,16 +19,17 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
-import { FilteredImage } from '../../components/FilteredImage';
+import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { COLORS, FilterType } from '../../constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const { width: SW } = Dimensions.get('window');
 
 const CARD_W = Math.min(SW * 0.3, 310);
-const CARD_H = CARD_W * (576 / 384);
+const CARD_H = CARD_W * (6 / 4.25);
 
 const FILTERS = [
   { label: 'Original', value: 'original' },
@@ -63,10 +64,21 @@ export default function EditScreen() {
   const [isFlipped, setIsFlipped] = useState(false);
   const flipProgress = useSharedValue(0);
 
-  // ✅ SAFE image URL (NO EMPTY STRING)
-  const imageUrl =
-    croppedImage ||
-    (sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : null);
+  // Remote URL for the session image
+  const remoteImageUrl = sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : null;
+
+  // Local cached URI — SvgImage on Android doesn't reliably load remote HTTPS URLs
+  const [cachedImageUri, setCachedImageUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (croppedImage || !remoteImageUrl) return;
+    const dest = `${FileSystem.cacheDirectory}session_image_${sessionId}.jpg`;
+    FileSystem.downloadAsync(remoteImageUrl, dest)
+      .then((res) => setCachedImageUri(res.uri))
+      .catch(() => setCachedImageUri(remoteImageUrl)); // fall back to remote on error
+  }, [remoteImageUrl, croppedImage, sessionId]);
+
+  const imageUrl = croppedImage ?? cachedImageUri;
 
   const frontStyle = useAnimatedStyle(() => ({
     transform: [{ rotateY: `${flipProgress.value * 180}deg` }],
@@ -91,8 +103,9 @@ export default function EditScreen() {
   };
 
   const handleCrop = () => {
-    if (!imageUrl) return;
-    const encodedUrl = encodeURIComponent(imageUrl);
+    const cropSource = croppedImage ?? remoteImageUrl;
+    if (!cropSource) return;
+    const encodedUrl = encodeURIComponent(cropSource);
     router.push(`/kiosk/crop?image=${encodedUrl}&session=${sessionId}`);
   };
 
@@ -106,8 +119,7 @@ export default function EditScreen() {
     router.replace('/');
   };
 
-  const imgH = CARD_H - 16 - 46;
-
+console.log("imgUrl:",imageUrl) 
   return (
     <View style={styles.container}>
       <ImageBackground
@@ -125,31 +137,13 @@ export default function EditScreen() {
               <View style={{ width: CARD_W, height: CARD_H }}>
 
                 {/* FRONT */}
-                <Animated.View style={[styles.postcard, frontStyle]}>
-                  <View style={[styles.imageArea, { height: imgH }]}>
-                    {imageUrl ? (
-                      <FilteredImage
-                        uri={imageUrl}
-                        filter={safeFilter}
-                        brightness={safeBrightness}
-                        width={CARD_W - 16}
-                        height={imgH}
-                        preserveAspectRatio="xMidYMid meet"
-                      />
-                    ) : (
-                      <View style={[styles.imagePlaceholder, { height: imgH }]}>
-                        <Text style={styles.placeholderText}>No image</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <View style={styles.logoRow}>
-                    <Image
-                      source={require('../../assets/images/dbg-logo.png')}
-                      style={styles.dbgLogo}
-                      resizeMode="contain"
-                    />
-                  </View>
+                <Animated.View style={frontStyle}>
+                  <PostcardPreview
+                    uri={imageUrl}
+                    filter={safeFilter}
+                    brightness={safeBrightness}
+                    width={CARD_W}
+                  />
                 </Animated.View>
 
                 {/* BACK */}

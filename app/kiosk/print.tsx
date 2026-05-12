@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import PostaFooter from '../../components/PostaFooter';
-import { FilteredImage } from '../../components/FilteredImage';
+import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
@@ -18,7 +18,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SW } = Dimensions.get('window');
 const CARD_W = Math.min(SW * 0.2, 240);
-const CARD_H = CARD_W * (420 / 285);
 
 export default function PrintScreen() {
   const router = useRouter();
@@ -28,15 +27,24 @@ export default function PrintScreen() {
 
   const imageUrl =
     croppedImage ||
-    (sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : '');
+    (sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : null);
 
-  const imgH = CARD_H - SPACING.lg * 3;
+  const [countdown, setCountdown] = useState(10);
 
   const handleNewOrder = async () => {
     resetAll();
     await AsyncStorage.removeItem('lastSessionId');
     router.replace('/');
   };
+
+  useEffect(() => {
+    if (countdown <= 0) {
+      handleNewOrder();
+      return;
+    }
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   return (
     <View style={styles.container}>
@@ -53,6 +61,9 @@ export default function PrintScreen() {
               Your postcard is printing now — pick it up at the front desk in
               just a moment!
             </Text>
+            <Text style={styles.countdownText}>
+              Returning to home in {countdown}s
+            </Text>
           </View>
 
           {/* Decorative print background image */}
@@ -63,33 +74,13 @@ export default function PrintScreen() {
           />
 
           {/* Postcard preview */}
-          <View
-            style={[
-              styles.postcardCard,
-              { width: CARD_W, height: CARD_H },
-            ]}
-          >
-            <View style={[styles.imageArea, { height: imgH }]}>
-              {imageUrl ? (
-                <FilteredImage
-                  uri={imageUrl}
-                  filter={selectedFilter}
-                  brightness={brightness}
-                  width={CARD_W - SPACING.md * 2}
-                  height={imgH}
-                  preserveAspectRatio="xMidYMid slice"
-                />
-              ) : (
-                <View style={[styles.placeholder, { height: imgH }]} />
-              )}
-            </View>
-            <View style={styles.logoRow}>
-              <Image
-                source={require('../../assets/images/dbg-logo.png')}
-                style={styles.dbgLogo}
-                resizeMode="contain"
-              />
-            </View>
+          <View style={styles.postcardCard}>
+            <PostcardPreview
+              uri={imageUrl}
+              filter={selectedFilter}
+              brightness={brightness}
+              width={CARD_W}
+            />
           </View>
 
           {/* CTA button */}
@@ -137,22 +128,8 @@ const styles = StyleSheet.create({
     left: '30%',
   },
   postcardCard: {
-    backgroundColor: COLORS.white,
-    padding: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
     ...SHADOW.md,
   },
-  imageArea: {
-    width: '100%',
-    overflow: 'hidden',
-  },
-  placeholder: {
-    width: '100%',
-    backgroundColor: COLORS.gray100,
-  },
-  logoRow: { alignItems: 'center', marginTop: SPACING.sm },
-  dbgLogo: { width: 42, height: 42 },
   newOrderBtn: {
     borderWidth: 1.5,
     borderColor: COLORS.border,
@@ -168,5 +145,10 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: '700',
     fontSize: 15,
+  },
+  countdownText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    marginTop: SPACING.xs,
   },
 });

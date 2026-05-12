@@ -1,12 +1,6 @@
 import React from 'react';
-import { View } from 'react-native';
-import Svg, {
-  Image as SvgImage,
-  Filter,
-  FeColorMatrix,
-  Defs,
-} from 'react-native-svg';
-import { FilterType, FILTER_MATRICES } from '../constants/theme';
+import { View, Image } from 'react-native';
+import { FilterType, FILTER_CSS } from '../constants/theme';
 
 interface FilteredImageProps {
   uri: string;
@@ -25,75 +19,23 @@ export const FilteredImage = ({
   height,
   preserveAspectRatio = 'xMidYMid meet',
 }: FilteredImageProps) => {
-  const filterId = `f-${filter}`;
-  const hasColorFilter = filter !== 'original';
+  const colorFilter = FILTER_CSS[filter] ?? '';
+  const brightnessFilter = brightness !== 100 ? `brightness(${brightness}%)` : '';
+  const filterStyle = [brightnessFilter, colorFilter].filter(Boolean).join(' ');
 
-  // Brightness overlay: < 100 darkens (black overlay), > 100 lightens (white overlay)
-  const brightnessOffset = brightness - 100; // -50 to +50
-  const overlayOpacity = Math.abs(brightnessOffset) / 100; // 0 to 0.5
-  const overlayColor = brightnessOffset < 0 ? '#000000' : '#FFFFFF';
-  const showOverlay = Math.abs(brightnessOffset) > 1;
+  // 'xMidYMid meet' = contain, 'xMidYMid slice' = cover
+  const resizeMode = preserveAspectRatio === 'xMidYMid slice' ? 'cover' : 'contain';
 
   return (
-    <View style={{ width, height }}>
-      <Svg width={width} height={height}>
-        {hasColorFilter && (
-          <Defs>
-            <Filter
-              id={filterId}
-              x="0%"
-              y="0%"
-              width="100%"
-              height="100%"
-            >
-              {filter === 'mono' && (
-                <FeColorMatrix
-                  type="matrix"
-                  values={FILTER_MATRICES.grayscale}
-                />
-              )}
-              {filter === 'sepia' && (
-                <FeColorMatrix
-                  type="matrix"
-                  values={FILTER_MATRICES.sepia80}
-                />
-              )}
-              {filter === 'warm' && (
-                <FeColorMatrix type="saturate" values="1.4" />
-              )}
-              {filter === 'cool' && (
-                <FeColorMatrix type="saturate" values="0.9" />
-              )}
-              {filter === 'pastel' && (
-                <FeColorMatrix type="saturate" values="0.7" />
-              )}
-            </Filter>
-          </Defs>
-        )}
-        <SvgImage
-          href={uri}
-          width={width}
-          height={height}
-          filter={hasColorFilter ? `url(#${filterId})` : undefined}
-          preserveAspectRatio={preserveAspectRatio}
-        />
-      </Svg>
-
-      {/* Brightness overlay */}
-      {showOverlay && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width,
-            height,
-            backgroundColor: overlayColor,
-            opacity: overlayOpacity,
-          }}
-        />
-      )}
+    <View style={{ width, height, overflow: 'hidden' }}>
+      <Image
+        source={{ uri }}
+        style={[
+          { width, height },
+          filterStyle ? ({ filter: filterStyle } as any) : undefined,
+        ]}
+        resizeMode={resizeMode}
+      />
     </View>
   );
 };

@@ -41,7 +41,8 @@ export default function HomeScreen() {
       }
 
       router.push(`/kiosk/qr?session=${data.token}`);
-    } catch {
+    } catch(e) {
+      console.log('error :',e)
       Alert.alert(
         'Connection Error',
         'Unable to connect to the kiosk service. Please call a staff member.',

@@ -20,16 +20,16 @@ import Animated, {
   clamp,
 } from 'react-native-reanimated';
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useCropStore } from '../../stores/cropStore';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
-// Fixed 3:4 crop frame (portrait, like a postcard front)
+// Crop frame matches the inner image area ratio: 3.25 × 4.75 inches
 const CROP_FRAME_W = Math.min(SW * 0.35, 320);
-const CROP_FRAME_H = CROP_FRAME_W * (4 / 3);
+const CROP_FRAME_H = CROP_FRAME_W * (4.75 / 3.25);
 
 // The display area behind the crop frame
 const DISPLAY_W = SW * 0.65;
@@ -44,7 +44,7 @@ export default function CropScreen() {
   const { setCroppedImage } = useCropStore();
 
   const [isCropping, setIsCropping] = useState(false);
-  const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
 
   // Pan offset of the image within the display area
   const translateX = useSharedValue(0);
@@ -85,11 +85,14 @@ export default function CropScreen() {
   }));
 
   const handleApplyCrop = useCallback(async () => {
+    if (imageSize.width === 0 || imageSize.height === 0) {
+      Alert.alert('Not Ready', 'Image is still loading. Please wait.');
+      return;
+    }
     setIsCropping(true);
     try {
       let localUri = imageUrl;
 
-      // If it's a remote URL, download it first
       if (imageUrl.startsWith('http')) {
         const filename = `crop_source_${Date.now()}.jpg`;
         const destPath = FileSystem.cacheDirectory + filename;
@@ -97,53 +100,56 @@ export default function CropScreen() {
         localUri = download.uri;
       }
 
-      // Get the actual image dimensions
-      const imgInfo = await ImageManipulator.manipulateAsync(localUri, [], {
-        format: ImageManipulator.SaveFormat.JPEG,
-      });
+      const naturalW = imageSize.width;
+      const naturalH = imageSize.height;
 
-      const naturalW = imgInfo.width;
-      const naturalH = imgInfo.height;
+      // Calculate the actual rendered size under resizeMode="contain":
+      // the image is scaled to fit DISPLAY_W x DISPLAY_H while keeping aspect ratio,
+      // then centered. Ignoring this makes the crop coordinates wrong.
+      const displayAspect = DISPLAY_W / DISPLAY_H;
+      const imageAspect = naturalW / naturalH;
+      let baseRenderedW: number;
+      let baseRenderedH: number;
+      if (imageAspect > displayAspect) {
+        baseRenderedW = DISPLAY_W;
+        baseRenderedH = DISPLAY_W / imageAspect;
+      } else {
+        baseRenderedH = DISPLAY_H;
+        baseRenderedW = DISPLAY_H * imageAspect;
+      }
 
-      // Map display coords to natural image coords
-      const displayedImgW = DISPLAY_W * scale.value;
-      const displayedImgH = DISPLAY_H * scale.value;
+      // Apply user pinch scale on top of the base rendered size
+      const displayedImgW = baseRenderedW * scale.value;
+      const displayedImgH = baseRenderedH * scale.value;
 
-      // Position of the image's top-left corner in display coordinates
-      const imgLeft = DISPLAY_W / 2 + translateX.value - displayedImgW / 2;
-      const imgTop = DISPLAY_H / 2 + translateY.value - displayedImgH / 2;
+      // Image top-left in display coords (centered, then shifted by pan)
+      const imgLeft = DISPLAY_W / 2 - displayedImgW / 2 + translateX.value;
+      const imgTop = DISPLAY_H / 2 - displayedImgH / 2 + translateY.value;
 
-      // Crop frame is centered in display
+      // Crop frame is centered in the display area
       const frameLeft = (DISPLAY_W - CROP_FRAME_W) / 2;
       const frameTop = (DISPLAY_H - CROP_FRAME_H) / 2;
 
-      // Relative position of crop frame within the displayed image
+      // Where the frame sits inside the displayed image
       const relX = frameLeft - imgLeft;
       const relY = frameTop - imgTop;
 
-      // Scale to natural image coordinates
+      // Map from display pixels to natural image pixels
       const scaleToNatural = naturalW / displayedImgW;
-      const cropX = Math.max(0, relX * scaleToNatural);
-      const cropY = Math.max(0, relY * scaleToNatural);
-      const cropW = Math.min(CROP_FRAME_W * scaleToNatural, naturalW - cropX);
-      const cropH = Math.min(CROP_FRAME_H * scaleToNatural, naturalH - cropY);
+      const cropX = Math.max(0, Math.round(relX * scaleToNatural));
+      const cropY = Math.max(0, Math.round(relY * scaleToNatural));
+      const cropW = Math.min(Math.round(CROP_FRAME_W * scaleToNatural), naturalW - cropX);
+      const cropH = Math.min(Math.round(CROP_FRAME_H * scaleToNatural), naturalH - cropY);
+
+      if (cropW <= 0 || cropH <= 0) {
+        Alert.alert('Crop Error', 'Please zoom in or reposition the image inside the frame.');
+        return;
+      }
 
       const result = await ImageManipulator.manipulateAsync(
         localUri,
-        [
-          {
-            crop: {
-              originX: Math.round(cropX),
-              originY: Math.round(cropY),
-              width: Math.round(cropW),
-              height: Math.round(cropH),
-            },
-          },
-        ],
-        {
-          compress: 0.92,
-          format: ImageManipulator.SaveFormat.JPEG,
-        },
+        [{ crop: { originX: cropX, originY: cropY, width: cropW, height: cropH } }],
+        { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG },
       );
 
       setCroppedImage(result.uri);
@@ -154,7 +160,7 @@ export default function CropScreen() {
     } finally {
       setIsCropping(false);
     }
-  }, [imageUrl, translateX, translateY, scale, setCroppedImage, router]);
+  }, [imageUrl, imageSize, translateX, translateY, scale, setCroppedImage, router]);
 
   const handleCancel = () => {
     router.back();
@@ -185,6 +191,12 @@ export default function CropScreen() {
                 source={{ uri: imageUrl }}
                 style={[styles.sourceImage, imageStyle]}
                 resizeMode="contain"
+                onLoad={(e) =>
+                  setImageSize({
+                    width: e.nativeEvent.source.width,
+                    height: e.nativeEvent.source.height,
+                  })
+                }
               />
 
               {/* Dark overlay outside crop frame */}
