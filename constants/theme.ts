@@ -55,7 +55,16 @@ export const SHADOW = {
   },
 };
 
-export type FilterType = 'original' | 'warm' | 'cool' | 'pastel' | 'mono' | 'sepia';
+export type FilterType =
+  | 'original'
+  | 'warm'
+  | 'cool'
+  | 'pastel'
+  | 'mono'
+  | 'sepia'
+  | 'kodakgold'
+  | 'portra160light'
+  | 'portra160dark';
 
 // CSS filter strings for expo-print HTML (exact match to web app)
 export const FILTER_CSS: Record<FilterType, string> = {
@@ -65,6 +74,10 @@ export const FILTER_CSS: Record<FilterType, string> = {
   pastel: 'saturate(70%) brightness(110%) contrast(90%)',
   mono: 'grayscale(100%)',
   sepia: 'sepia(80%)',
+  // Film LUT presets — CSS approximations of the Lightroom XMP values
+  kodakgold: 'brightness(110%) contrast(108%) saturate(117%) sepia(15%) hue-rotate(-8deg)',
+  portra160light: 'brightness(105%) contrast(95%) saturate(108%) hue-rotate(5deg)',
+  portra160dark: 'brightness(88%) contrast(97%) saturate(112%) hue-rotate(10deg)',
 };
 
 // SVG color matrix values for FilteredImage component (native preview)

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,6 @@ import {
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withDecay,
   clamp,
 } from 'react-native-reanimated';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -27,13 +26,15 @@ import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
-// Crop frame matches the inner image area ratio: 3.25 × 4.75 inches
 const CROP_FRAME_W = Math.min(SW * 0.35, 320);
-const CROP_FRAME_H = CROP_FRAME_W * (4.75 / 3.25);
+const DISPLAY_W    = SW * 0.65;
+const DISPLAY_H    = SH * 0.75;
 
-// The display area behind the crop frame
-const DISPLAY_W = SW * 0.65;
-const DISPLAY_H = SH * 0.75;
+// Inner image area ratios per orientation
+// Portrait : 3.25in × 4.75in
+// Landscape: 5in × 3in
+const PORTRAIT_RATIO  = 4.75 / 3.25;
+const LANDSCAPE_RATIO = 3 / 5;
 
 export default function CropScreen() {
   const router = useRouter();
@@ -41,17 +42,20 @@ export default function CropScreen() {
     useLocalSearchParams<{ image: string; session: string }>();
 
   const imageUrl = decodeURIComponent(encodedImageUrl);
-  const { setCroppedImage } = useCropStore();
+  const { setCroppedImage, orientation } = useCropStore();
+
+  const cropFrameH =
+    CROP_FRAME_W * (orientation === 'landscape' ? LANDSCAPE_RATIO : PORTRAIT_RATIO);
+
+  const frameLeft = (DISPLAY_W - CROP_FRAME_W) / 2;
+  const frameTop  = (DISPLAY_H - cropFrameH) / 2;
 
   const [isCropping, setIsCropping] = useState(false);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
 
-  // Pan offset of the image within the display area
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const scale = useSharedValue(1);
-
-  // Store initial values at gesture start for pan
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const startScale = useSharedValue(1);
@@ -67,9 +71,7 @@ export default function CropScreen() {
     });
 
   const pinchGesture = Gesture.Pinch()
-    .onBegin(() => {
-      startScale.value = scale.value;
-    })
+    .onBegin(() => { startScale.value = scale.value; })
     .onUpdate((e) => {
       scale.value = clamp(startScale.value * e.scale, 0.5, 4);
     });
@@ -92,7 +94,6 @@ export default function CropScreen() {
     setIsCropping(true);
     try {
       let localUri = imageUrl;
-
       if (imageUrl.startsWith('http')) {
         const filename = `crop_source_${Date.now()}.jpg`;
         const destPath = FileSystem.cacheDirectory + filename;
@@ -103,9 +104,6 @@ export default function CropScreen() {
       const naturalW = imageSize.width;
       const naturalH = imageSize.height;
 
-      // Calculate the actual rendered size under resizeMode="contain":
-      // the image is scaled to fit DISPLAY_W x DISPLAY_H while keeping aspect ratio,
-      // then centered. Ignoring this makes the crop coordinates wrong.
       const displayAspect = DISPLAY_W / DISPLAY_H;
       const imageAspect = naturalW / naturalH;
       let baseRenderedW: number;
@@ -118,28 +116,20 @@ export default function CropScreen() {
         baseRenderedW = DISPLAY_H * imageAspect;
       }
 
-      // Apply user pinch scale on top of the base rendered size
       const displayedImgW = baseRenderedW * scale.value;
       const displayedImgH = baseRenderedH * scale.value;
 
-      // Image top-left in display coords (centered, then shifted by pan)
       const imgLeft = DISPLAY_W / 2 - displayedImgW / 2 + translateX.value;
-      const imgTop = DISPLAY_H / 2 - displayedImgH / 2 + translateY.value;
+      const imgTop  = DISPLAY_H / 2 - displayedImgH / 2 + translateY.value;
 
-      // Crop frame is centered in the display area
-      const frameLeft = (DISPLAY_W - CROP_FRAME_W) / 2;
-      const frameTop = (DISPLAY_H - CROP_FRAME_H) / 2;
-
-      // Where the frame sits inside the displayed image
       const relX = frameLeft - imgLeft;
-      const relY = frameTop - imgTop;
+      const relY = frameTop  - imgTop;
 
-      // Map from display pixels to natural image pixels
       const scaleToNatural = naturalW / displayedImgW;
       const cropX = Math.max(0, Math.round(relX * scaleToNatural));
       const cropY = Math.max(0, Math.round(relY * scaleToNatural));
       const cropW = Math.min(Math.round(CROP_FRAME_W * scaleToNatural), naturalW - cropX);
-      const cropH = Math.min(Math.round(CROP_FRAME_H * scaleToNatural), naturalH - cropY);
+      const cropH = Math.min(Math.round(cropFrameH * scaleToNatural), naturalH - cropY);
 
       if (cropW <= 0 || cropH <= 0) {
         Alert.alert('Crop Error', 'Please zoom in or reposition the image inside the frame.');
@@ -160,11 +150,9 @@ export default function CropScreen() {
     } finally {
       setIsCropping(false);
     }
-  }, [imageUrl, imageSize, translateX, translateY, scale, setCroppedImage, router]);
+  }, [imageUrl, imageSize, translateX, translateY, scale, frameLeft, frameTop, cropFrameH, setCroppedImage, router]);
 
-  const handleCancel = () => {
-    router.back();
-  };
+  const handleCancel = () => router.back();
 
   return (
     <View style={styles.container}>
@@ -173,23 +161,19 @@ export default function CropScreen() {
         style={styles.background}
         resizeMode="cover"
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Crop Your Photo</Text>
           <Text style={styles.subtitle}>
-            Pan and pinch to position your photo within the crop frame, then tap
-            Apply.
+            Pan and pinch to position your photo within the frame, then tap Apply.
           </Text>
         </View>
 
-        {/* Crop area */}
         <View style={styles.cropContainer}>
           <GestureDetector gesture={composedGesture}>
-            <View style={styles.displayArea}>
-              {/* Background image (pannable/zoomable) */}
+            <View style={[styles.displayArea, { width: DISPLAY_W, height: DISPLAY_H }]}>
               <Animated.Image
                 source={{ uri: imageUrl }}
-                style={[styles.sourceImage, imageStyle]}
+                style={[{ width: DISPLAY_W, height: DISPLAY_H, position: 'absolute' }, imageStyle]}
                 resizeMode="contain"
                 onLoad={(e) =>
                   setImageSize({
@@ -199,15 +183,19 @@ export default function CropScreen() {
                 }
               />
 
-              {/* Dark overlay outside crop frame */}
-              <View style={styles.overlayTop} />
-              <View style={styles.overlayBottom} />
-              <View style={styles.overlayLeft} />
-              <View style={styles.overlayRight} />
+              {/* Dark overlays around crop frame */}
+              <View style={[styles.overlay, { top: 0, left: 0, right: 0, height: frameTop }]} />
+              <View style={[styles.overlay, { bottom: 0, left: 0, right: 0, height: DISPLAY_H - frameTop - cropFrameH }]} />
+              <View style={[styles.overlay, { top: frameTop, left: 0, width: frameLeft, height: cropFrameH }]} />
+              <View style={[styles.overlay, { top: frameTop, right: 0, width: DISPLAY_W - frameLeft - CROP_FRAME_W, height: cropFrameH }]} />
 
-              {/* Crop frame border */}
-              <View style={styles.cropFrame}>
-                {/* Corner handles */}
+              {/* Crop frame */}
+              <View
+                style={[
+                  styles.cropFrame,
+                  { top: frameTop, left: frameLeft, width: CROP_FRAME_W, height: cropFrameH },
+                ]}
+              >
                 <View style={[styles.corner, styles.cornerTL]} />
                 <View style={[styles.corner, styles.cornerTR]} />
                 <View style={[styles.corner, styles.cornerBL]} />
@@ -217,12 +205,10 @@ export default function CropScreen() {
           </GestureDetector>
         </View>
 
-        {/* Action buttons */}
         <View style={styles.actions}>
           <TouchableOpacity style={styles.cancelBtn} onPress={handleCancel}>
             <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={[styles.applyBtn, isCropping && styles.applyBtnDisabled]}
             onPress={handleApplyCrop}
@@ -239,9 +225,6 @@ export default function CropScreen() {
     </View>
   );
 }
-
-const frameLeft = (DISPLAY_W - CROP_FRAME_W) / 2;
-const frameTop = (DISPLAY_H - CROP_FRAME_H) / 2;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
@@ -270,56 +253,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   displayArea: {
-    width: DISPLAY_W,
-    height: DISPLAY_H,
     overflow: 'hidden',
     backgroundColor: '#000',
     position: 'relative',
   },
-  sourceImage: {
-    width: DISPLAY_W,
-    height: DISPLAY_H,
+  overlay: {
     position: 'absolute',
-  },
-  // Overlay quadrants
-  overlayTop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: frameTop,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  overlayBottom: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: DISPLAY_H - frameTop - CROP_FRAME_H,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  overlayLeft: {
-    position: 'absolute',
-    top: frameTop,
-    left: 0,
-    width: frameLeft,
-    height: CROP_FRAME_H,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  overlayRight: {
-    position: 'absolute',
-    top: frameTop,
-    right: 0,
-    width: DISPLAY_W - frameLeft - CROP_FRAME_W,
-    height: CROP_FRAME_H,
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   cropFrame: {
     position: 'absolute',
-    top: frameTop,
-    left: frameLeft,
-    width: CROP_FRAME_W,
-    height: CROP_FRAME_H,
     borderWidth: 2,
     borderColor: COLORS.white,
   },
@@ -366,9 +309,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...SHADOW.md,
   },
-  applyBtnDisabled: {
-    opacity: 0.6,
-  },
+  applyBtnDisabled: { opacity: 0.6 },
   applyText: {
     color: COLORS.white,
     fontWeight: '700',

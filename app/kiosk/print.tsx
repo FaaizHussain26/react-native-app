@@ -11,19 +11,20 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
+import { PrinterIllustration } from '../../components/PrinterIllustration';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SW } = Dimensions.get('window');
-const CARD_W = Math.min(SW * 0.2, 240);
+const CARD_W = Math.min(SW * 0.18, 220);
 
 export default function PrintScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { croppedImage, brightness, selectedFilter, resetAll } = useCropStore();
+  const { croppedImage, brightness, selectedFilter, orientation, resetAll } = useCropStore();
 
   const imageUrl =
     croppedImage ||
@@ -54,24 +55,14 @@ export default function PrintScreen() {
         resizeMode="cover"
       >
         <View style={styles.content}>
-          {/* Title */}
-          <View style={styles.titleArea}>
-            <Text style={styles.title}>Your Memory is Taking Shape...</Text>
-            <Text style={styles.subtitle}>
-              Your postcard is printing now — pick it up at the front desk in
-              just a moment!
-            </Text>
-            <Text style={styles.countdownText}>
-              Returning to home in {countdown}s
-            </Text>
-          </View>
+          {/* Header */}
+          <Text style={styles.title}>Your postcard is printing!</Text>
+          <Text style={styles.subtitle}>
+            Your postcard will be ready here shortly,{'\n'}head over to the front desk to pick it up!
+          </Text>
 
-          {/* Decorative print background image */}
-          <Image
-            source={require('../../assets/images/print-bg.png')}
-            style={styles.printBg}
-            resizeMode="contain"
-          />
+          {/* Printer illustration */}
+          <PrinterIllustration width={280} height={220} />
 
           {/* Postcard preview */}
           <View style={styles.postcardCard}>
@@ -80,10 +71,26 @@ export default function PrintScreen() {
               filter={selectedFilter}
               brightness={brightness}
               width={CARD_W}
+              orientation={orientation}
             />
           </View>
 
-          {/* CTA button */}
+          {/* Thank you + logo */}
+          <View style={styles.thankRow}>
+            <Text style={styles.thankText}>Thank you</Text>
+            <Image
+              source={require('../../assets/images/posta-logo.png')}
+              style={styles.postaLogo}
+              resizeMode="contain"
+            />
+          </View>
+
+          {/* Countdown */}
+          <Text style={styles.countdownText}>
+            Returning to home in {countdown}s
+          </Text>
+
+          {/* CTA */}
           <TouchableOpacity style={styles.newOrderBtn} onPress={handleNewOrder}>
             <Text style={styles.newOrderText}>Print Another Postcard</Text>
           </TouchableOpacity>
@@ -103,12 +110,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: SPACING.xl,
-    gap: SPACING.lg,
-    paddingTop: SPACING.xl,
+    gap: SPACING.md,
+    paddingTop: SPACING.lg,
   },
-  titleArea: { alignItems: 'center', gap: SPACING.xs },
   title: {
-    fontSize: 34,
+    fontSize: 36,
     fontWeight: '800',
     color: COLORS.primary,
     textAlign: 'center',
@@ -117,18 +123,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.muted,
     textAlign: 'center',
-    maxWidth: 480,
-  },
-  printBg: {
-    width: 300,
-    height: 220,
-    position: 'absolute',
-    opacity: 0.4,
-    top: '8%',
-    left: '30%',
+    maxWidth: 500,
+    lineHeight: 24,
   },
   postcardCard: {
     ...SHADOW.md,
+  },
+  thankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.xs,
+  },
+  thankText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  postaLogo: {
+    width: 80,
+    height: 28,
+  },
+  countdownText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
   newOrderBtn: {
     borderWidth: 1.5,
@@ -145,10 +163,5 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: '700',
     fontSize: 15,
-  },
-  countdownText: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginTop: SPACING.xs,
   },
 });

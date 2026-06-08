@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import PostaFooter from '../components/PostaFooter';
+import { PostcardHandIllustration } from '../components/PostcardHandIllustration';
 import { useCreateSession } from '../hooks/useCreateSession';
 import { COLORS, SPACING } from '../constants/theme';
 
@@ -61,16 +62,12 @@ export default function HomeScreen() {
       >
         <View style={styles.content}>
           <Text style={[styles.headline, { fontSize: Math.min(SW * 0.045, 48) }]}>
-            Upload Your Favorite Photo,{'\n'}Personalize & Print!
+            Turn your photo into a postcard!
           </Text>
 
           <View style={styles.row}>
-            {/* Left: postcard image */}
-            <Image
-              source={require('../assets/images/postcard_pic.png')}
-              style={{ width: imgW, height: imgH }}
-              resizeMode="contain"
-            />
+            {/* Left: postcard hand illustration */}
+            <PostcardHandIllustration width={imgW} height={imgH} />
 
             {/* Right: start button + price */}
             <View style={styles.rightCol}>
@@ -92,9 +89,9 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               )}
 
-              {/* <Text style={[styles.price, { fontSize: Math.min(SW * 0.03, 32) }]}>
-                Price: $3.50
-              </Text> */}
+              <Text style={[styles.price, { fontSize: Math.min(SW * 0.022, 24) }]}>
+                $3.93 per postcard
+              </Text>
             </View>
           </View>
         </View>

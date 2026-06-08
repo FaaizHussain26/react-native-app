@@ -29,21 +29,22 @@ import * as FileSystem from 'expo-file-system/legacy';
 const { width: SW } = Dimensions.get('window');
 
 const CARD_W = Math.min(SW * 0.3, 310);
-const CARD_H = CARD_W * (6 / 4.25);
 
-const FILTERS = [
+const FILTERS: { label: string; value: FilterType }[] = [
   { label: 'Original', value: 'original' },
   { label: 'Warm', value: 'warm' },
   { label: 'Cool', value: 'cool' },
   { label: 'Pastel', value: 'pastel' },
   { label: 'Mono', value: 'mono' },
   { label: 'Sepia', value: 'sepia' },
+  { label: 'Kodak Gold', value: 'kodakgold' },
+  { label: 'Portra 160 Light', value: 'portra160light' },
+  { label: 'Portra 160 Dark', value: 'portra160dark' },
 ];
 
 export default function EditScreen() {
   const router = useRouter();
 
-  // ✅ SAFE PARAM HANDLING
   const params = useLocalSearchParams();
   const sessionId =
     typeof params.session === 'string' ? params.session : '';
@@ -52,8 +53,10 @@ export default function EditScreen() {
     croppedImage,
     brightness,
     selectedFilter,
+    orientation,
     setBrightness,
     setSelectedFilter,
+    setOrientation,
     resetFilters,
     resetAll,
   } = useCropStore();
@@ -64,10 +67,7 @@ export default function EditScreen() {
   const [isFlipped, setIsFlipped] = useState(false);
   const flipProgress = useSharedValue(0);
 
-  // Remote URL for the session image
   const remoteImageUrl = sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : null;
-
-  // Local cached URI — SvgImage on Android doesn't reliably load remote HTTPS URLs
   const [cachedImageUri, setCachedImageUri] = useState<string | null>(null);
 
   useEffect(() => {
@@ -75,17 +75,23 @@ export default function EditScreen() {
     const dest = `${FileSystem.cacheDirectory}session_image_${sessionId}.jpg`;
     FileSystem.downloadAsync(remoteImageUrl, dest)
       .then((res) => setCachedImageUri(res.uri))
-      .catch(() => setCachedImageUri(remoteImageUrl)); // fall back to remote on error
+      .catch(() => setCachedImageUri(remoteImageUrl));
   }, [remoteImageUrl, croppedImage, sessionId]);
 
   const imageUrl = croppedImage ?? cachedImageUri;
+
+  // Card height changes with orientation
+  const cardH =
+    orientation === 'landscape'
+      ? CARD_W * (4.25 / 6)
+      : CARD_W * (6 / 4.25);
 
   const frontStyle = useAnimatedStyle(() => ({
     transform: [{ rotateY: `${flipProgress.value * 180}deg` }],
     backfaceVisibility: 'hidden',
     position: 'absolute',
     width: CARD_W,
-    height: CARD_H,
+    height: cardH,
   }));
 
   const backStyle = useAnimatedStyle(() => ({
@@ -93,7 +99,7 @@ export default function EditScreen() {
     backfaceVisibility: 'hidden',
     position: 'absolute',
     width: CARD_W,
-    height: CARD_H,
+    height: cardH,
   }));
 
   const handleFlip = () => {
@@ -119,7 +125,6 @@ export default function EditScreen() {
     router.replace('/');
   };
 
-console.log("imgUrl:",imageUrl) 
   return (
     <View style={styles.container}>
       <ImageBackground
@@ -133,8 +138,8 @@ console.log("imgUrl:",imageUrl)
           <View style={styles.mainRow}>
 
             {/* CARD */}
-            <View style={[styles.cardWrapper, { width: CARD_W + 36, height: CARD_H + 36 }]}>
-              <View style={{ width: CARD_W, height: CARD_H }}>
+            <View style={[styles.cardWrapper, { width: CARD_W + 36, height: cardH + 36 }]}>
+              <View style={{ width: CARD_W, height: cardH }}>
 
                 {/* FRONT */}
                 <Animated.View style={frontStyle}>
@@ -143,6 +148,7 @@ console.log("imgUrl:",imageUrl)
                     filter={safeFilter}
                     brightness={safeBrightness}
                     width={CARD_W}
+                    orientation={orientation}
                   />
                 </Animated.View>
 
@@ -150,13 +156,13 @@ console.log("imgUrl:",imageUrl)
                 <Animated.View style={[styles.postcard, backStyle]}>
                   <Image
                     source={require('../../assets/images/back-side-1.png')}
-                    style={styles.backImage}
+                    style={{ width: CARD_W - 16, height: cardH - 16, borderRadius: 6 }}
                     resizeMode="stretch"
                   />
                 </Animated.View>
               </View>
 
-              {/* FLIP — floating circle bottom-right */}
+              {/* FLIP button */}
               <TouchableOpacity onPress={handleFlip} style={styles.flipButton}>
                 <MaterialCommunityIcons name="book-open-outline" size={26} color={COLORS.textPrimary} />
                 <Text style={styles.flipLabel}>
@@ -168,6 +174,35 @@ console.log("imgUrl:",imageUrl)
             {/* PANEL */}
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Edit Your Photo</Text>
+
+              {/* ORIENTATION */}
+              <View style={styles.section}>
+                <View style={styles.sectionLabelRow}>
+                  <Ionicons name="phone-portrait-outline" size={16} color={COLORS.textPrimary} />
+                  <Text style={styles.sectionLabel}>Orientation</Text>
+                </View>
+                <View style={styles.orientRow}>
+                  {(['portrait', 'landscape'] as const).map((o) => (
+                    <TouchableOpacity
+                      key={o}
+                      style={[
+                        styles.orientBtn,
+                        orientation === o ? styles.orientBtnActive : styles.orientBtnInactive,
+                      ]}
+                      onPress={() => setOrientation(o)}
+                    >
+                      <Text
+                        style={[
+                          styles.orientLabel,
+                          orientation === o ? styles.orientLabelActive : styles.orientLabelInactive,
+                        ]}
+                      >
+                        {o.charAt(0).toUpperCase() + o.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
 
               {/* FILTERS */}
               <View style={styles.section}>
@@ -185,7 +220,7 @@ console.log("imgUrl:",imageUrl)
                           ? styles.filterBtnActive
                           : styles.filterBtnInactive,
                       ]}
-                      onPress={() => setSelectedFilter(f.value as FilterType)}
+                      onPress={() => setSelectedFilter(f.value)}
                     >
                       <Text
                         style={[
@@ -277,15 +312,6 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
 
-  imageArea: { justifyContent: 'center', alignItems: 'center' },
-  imagePlaceholder: { justifyContent: 'center', alignItems: 'center' },
-  placeholderText: { color: '#888' },
-
-  logoRow: { alignItems: 'center', marginTop: 8, paddingBottom: 4 },
-  dbgLogo: { width: 80, height: 30 },
-
-  backImage: { width: CARD_W - 16, height: CARD_H - 16, borderRadius: 6 },
-
   flipButton: {
     position: 'absolute',
     bottom: 0,
@@ -335,14 +361,37 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
   },
 
+  orientRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  orientBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  orientBtnActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  orientBtnInactive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: COLORS.border,
+  },
+  orientLabel: { fontSize: 14, fontWeight: '600' },
+  orientLabelActive: { color: '#FFFFFF' },
+  orientLabelInactive: { color: COLORS.muted },
+
   filterGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
   filterBtn: {
-    width: '30%',
-    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',
@@ -355,7 +404,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderColor: COLORS.border,
   },
-  filterLabel: { fontSize: 14, fontWeight: '500' },
+  filterLabel: { fontSize: 13, fontWeight: '500' },
   filterLabelActive: { color: '#FFFFFF' },
   filterLabelInactive: { color: COLORS.muted },
 

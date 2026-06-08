@@ -4,10 +4,10 @@ import { FilteredImage } from './FilteredImage';
 import { FilterType } from '../constants/theme';
 
 // Physical postcard dimensions (inches)
-const CARD_W_IN   = 4.25;
-const CARD_H_IN   = 6;
-const BORDER_IN   = 0.5;   // top, left, right
-const BOTTOM_IN   = 0.75;  // bottom border (thicker, holds text)
+const PORTRAIT_W = 4.25;
+const PORTRAIT_H = 6;
+const BORDER_SIDE   = 0.5;  // top, left, right
+const BORDER_BOTTOM = 0.75; // bottom (holds text)
 
 const LOCATION = (process.env.EXPO_PUBLIC_LOCATION_NAME ?? 'YOUR LOCATION').toUpperCase();
 const YEAR     = new Date().getFullYear();
@@ -17,6 +17,7 @@ interface PostcardPreviewProps {
   filter: FilterType;
   brightness: number;
   width: number;
+  orientation?: 'portrait' | 'landscape';
 }
 
 export const PostcardPreview = ({
@@ -24,23 +25,26 @@ export const PostcardPreview = ({
   filter,
   brightness,
   width,
+  orientation = 'portrait',
 }: PostcardPreviewProps) => {
-  const height = width * (CARD_H_IN / CARD_W_IN);
+  // In landscape mode the physical card is rotated: 6in wide × 4.25in tall
+  const cardWIn = orientation === 'landscape' ? PORTRAIT_H : PORTRAIT_W;
+  const cardHIn = orientation === 'landscape' ? PORTRAIT_W : PORTRAIT_H;
 
-  // All borders derived from width so proportions stay exact at any size
-  const borderSide   = width * (BORDER_IN / CARD_W_IN);
-  const borderBottom = width * (BOTTOM_IN / CARD_W_IN);
+  const height = width * (cardHIn / cardWIn);
+
+  // Borders derived proportionally from card width (= cardWIn inches)
+  const borderSide   = width * (BORDER_SIDE / cardWIn);
+  const borderBottom = width * (BORDER_BOTTOM / cardWIn);
 
   const imageW = width - borderSide * 2;
   const imageH = height - borderSide - borderBottom;
 
-  // Scale font the same way the rest of the card scales
-  const fontSize     = Math.max(7, width * (24 / (CARD_W_IN * 300)));
+  const fontSize      = Math.max(7, width * (24 / (cardWIn * 300)));
   const letterSpacing = fontSize * 0.12;
 
   return (
     <View style={[styles.card, { width, height }]}>
-      {/* Top + side borders are just padding around the image */}
       <View style={{ paddingTop: borderSide, paddingHorizontal: borderSide }}>
         <View style={{ width: imageW, height: imageH, overflow: 'hidden' }}>
           {uri ? (
@@ -58,7 +62,6 @@ export const PostcardPreview = ({
         </View>
       </View>
 
-      {/* Bottom border with location text */}
       <View style={[styles.bottomBorder, { height: borderBottom }]}>
         <Text style={[styles.locationText, { fontSize, letterSpacing }]}>
           {LOCATION} · {YEAR}

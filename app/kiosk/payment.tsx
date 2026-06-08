@@ -34,7 +34,7 @@ export default function PaymentScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { croppedImage, brightness, selectedFilter } = useCropStore();
+  const { croppedImage, brightness, selectedFilter, orientation } = useCropStore();
 
   const [isPrinting, setIsPrinting] = useState(false);
   const [printError, setPrintError] = useState('');
@@ -64,11 +64,14 @@ export default function PaymentScreen() {
         brightness,
       });
 
-      router.push(`/kiosk/print?session=${sessionId}`);
     } catch (err) {
       console.error('Server print failed:', err);
       setPrintError('Print failed. Please try again.');
       setIsPrinting(false);
+    }
+    finally{
+            router.push(`/kiosk/print?session=${sessionId}`);
+
     }
   }, [sessionId, selectedFilter, brightness, router]);
 
@@ -151,6 +154,7 @@ export default function PaymentScreen() {
             filter={selectedFilter}
             brightness={brightness}
             width={SHOT_W}
+            orientation={orientation}
           />
         </ViewShot>
 
