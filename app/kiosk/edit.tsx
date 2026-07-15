@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
+import { analyzePhoto } from '../../services/session';
 import { COLORS, FilterType } from '../../constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -79,6 +80,29 @@ export default function EditScreen() {
   }, [remoteImageUrl, croppedImage, sessionId]);
 
   const imageUrl = croppedImage ?? cachedImageUri;
+
+  // AI-recommended filter — analyze the photo once per session visit and
+  // auto-apply the suggestion, unless the customer already made their own pick.
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiRecommendedFilter, setAiRecommendedFilter] = useState<FilterType | null>(null);
+  const hasRequestedAnalysisRef = useRef(false);
+  const hasManualEditRef = useRef(false);
+
+  useEffect(() => {
+    if (!sessionId || hasRequestedAnalysisRef.current) return;
+    hasRequestedAnalysisRef.current = true;
+
+    setIsAnalyzing(true);
+    analyzePhoto(sessionId)
+      .then((result) => {
+        if (hasManualEditRef.current) return;
+        setSelectedFilter(result.filter);
+        setBrightness(result.brightness);
+        setAiRecommendedFilter(result.filter);
+      })
+      .catch((err) => console.error('Photo analysis failed:', err))
+      .finally(() => setIsAnalyzing(false));
+  }, [sessionId, setSelectedFilter, setBrightness]);
 
   const frontStyle = useAnimatedStyle(() => ({
     transform: [{ rotateY: `${flipProgress.value * 180}deg` }],
@@ -174,6 +198,9 @@ console.log("imgUrl:",imageUrl)
                 <View style={styles.sectionLabelRow}>
                   <Ionicons name="sparkles" size={16} color={COLORS.textPrimary} />
                   <Text style={styles.sectionLabel}>Filters</Text>
+                  {isAnalyzing && (
+                    <Text style={styles.analyzingText}>Analyzing photo…</Text>
+                  )}
                 </View>
                 <View style={styles.filterGrid}>
                   {FILTERS.map((f) => (
@@ -185,7 +212,10 @@ console.log("imgUrl:",imageUrl)
                           ? styles.filterBtnActive
                           : styles.filterBtnInactive,
                       ]}
-                      onPress={() => setSelectedFilter(f.value as FilterType)}
+                      onPress={() => {
+                        hasManualEditRef.current = true;
+                        setSelectedFilter(f.value as FilterType);
+                      }}
                     >
                       <Text
                         style={[
@@ -197,6 +227,16 @@ console.log("imgUrl:",imageUrl)
                       >
                         {f.label}
                       </Text>
+                      {aiRecommendedFilter === f.value && (
+                        <Text
+                          style={[
+                            styles.aiBadge,
+                            safeFilter === f.value && styles.aiBadgeActive,
+                          ]}
+                        >
+                          AI Recommended
+                        </Text>
+                      )}
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -216,9 +256,11 @@ console.log("imgUrl:",imageUrl)
                   maximumValue={150}
                   step={1}
                   value={safeBrightness}
-                  onValueChange={(val) =>
-                    typeof val === 'number' && setBrightness(val)
-                  }
+                  onValueChange={(val) => {
+                    if (typeof val !== 'number') return;
+                    hasManualEditRef.current = true;
+                    setBrightness(val);
+                  }}
                   minimumTrackTintColor={COLORS.primary}
                   maximumTrackTintColor={COLORS.border}
                   thumbTintColor="#FFFFFF"
@@ -233,7 +275,13 @@ console.log("imgUrl:",imageUrl)
                     <Feather name="crop" size={15} color={COLORS.textPrimary} />
                     <Text style={styles.actionLabel}>Crop Image</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionBtn} onPress={resetFilters}>
+                  <TouchableOpacity
+                    style={styles.actionBtn}
+                    onPress={() => {
+                      hasManualEditRef.current = true;
+                      resetFilters();
+                    }}
+                  >
                     <Feather name="refresh-cw" size={15} color={COLORS.textPrimary} />
                     <Text style={styles.actionLabel}>Reset</Text>
                   </TouchableOpacity>
@@ -333,6 +381,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.textPrimary,
+  },
+  analyzingText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: COLORS.muted,
+    marginLeft: 4,
+  },
+  aiBadge: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginTop: 2,
+  },
+  aiBadgeActive: {
+    color: '#FFFFFF',
   },
 
   filterGrid: {

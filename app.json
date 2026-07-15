@@ -16,12 +16,14 @@
     "ios": {
       "supportsTablet": true,
       "requireFullScreen": true,
+      "buildNumber": "5",
       "bundleIdentifier": "com.posta.kiosk",
       "infoPlist": {
         "NSCameraUsageDescription": "Camera access needed to capture photos for postcards.",
         "NSPhotoLibraryUsageDescription": "Photo library access needed to upload photos for postcards.",
         "NSLocationWhenInUseUsageDescription": "Location is used to display your kiosk's city on the postcard.",
-        "UIRequiresFullScreen": true
+        "UIRequiresFullScreen": true,
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

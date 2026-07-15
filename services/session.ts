@@ -1,4 +1,5 @@
 import { api } from './api';
+import { FilterType } from '../constants/theme';
 
 export interface CreateSessionResponse {
   token: string;
@@ -76,34 +77,30 @@ export const requestPrint = async (sessionId: string): Promise<void> => {
 };
 
 /**
- * Send a rendered image (with filters baked in) to the backend for server-side
- * CUPS printing.
+ * Let the backend know a print job started/completed on-device (native AirPrint),
+ * so session status and WebSocket listeners stay in sync. No image is uploaded.
  */
-export const requestPrintWithImage = async (params: {
-  sessionId: string;
-  imageUri: string;
-  filterType?: string;
-  brightness?: number;
-}): Promise<{ message: string; status: string }> => {
-  const formData = new FormData();
-  formData.append('image', {
-    uri: params.imageUri,
-    name: 'postcard.jpg',
-    type: 'image/jpeg',
-  } as unknown as Blob);
+export const notifyPrintStatus = async (
+  sessionId: string,
+  status: 'printing' | 'printed' | 'error',
+): Promise<void> => {
+  await api.post(`/session/${sessionId}/print-status`, { status });
+};
 
-  if (params.filterType) {
-    formData.append('filter', params.filterType);
-  }
-  if (params.brightness !== undefined) {
-    formData.append('brightness', String(params.brightness));
-  }
+export interface PhotoAnalysisResult {
+  filter: FilterType;
+  brightness: number;
+}
 
-  const { data } = await api.post<{ message: string; status: string }>(
-    `/session/${params.sessionId}/print`,
-    formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
+/**
+ * Ask the backend to analyze the session's uploaded photo (via OpenAI vision)
+ * and recommend a filter + brightness, similar to a Lightroom "Auto" suggestion.
+ */
+export const analyzePhoto = async (
+  sessionId: string,
+): Promise<PhotoAnalysisResult> => {
+  const { data } = await api.post<PhotoAnalysisResult>(
+    `/session/${sessionId}/analyze-photo`,
   );
-
   return data;
 };

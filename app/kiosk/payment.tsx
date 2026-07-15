@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -7,39 +7,33 @@ import {
   ImageBackground,
   Image,
   ActivityIndicator,
-  Dimensions,
   ScrollView,
 } from 'react-native';
-import ViewShot from 'react-native-view-shot';
+import * as Print from 'expo-print';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
-import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
+import { usePrinterStore } from '../../stores/printerStore';
 import { API_BASE_URL } from '../../services/api';
-import { requestPrintWithImage } from '../../services/session';
+import { notifyPrintStatus } from '../../services/session';
 import {
   COLORS,
   SPACING,
   RADIUS,
   SHADOW,
+  FILTER_CSS,
 } from '../../constants/theme';
-
-const { width: SW } = Dimensions.get('window');
-// Capture at higher width for better print quality
-const SHOT_W = Math.min(SW * 0.8, 600);
-
 
 export default function PaymentScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { croppedImage, brightness, selectedFilter } = useCropStore();
+  const { brightness, selectedFilter, croppedImage } = useCropStore();
+  const { printer, setPrinter, clearPrinter } = usePrinterStore();
 
   const [isPrinting, setIsPrinting] = useState(false);
   const [printError, setPrintError] = useState('');
-
-  const viewShotRef = useRef<ViewShot>(null);
 
   const imageUrl =
     croppedImage ||
@@ -49,28 +43,79 @@ export default function PaymentScreen() {
     router.push(`/kiosk/review?session=${sessionId}`);
   };
 
-  const handleServerPrint = useCallback(async () => {
+  // ── Native AirPrint ──
+  // First print of the app session asks the user to pick a printer
+  // (Print.selectPrinterAsync) and remembers it in usePrinterStore, so every
+  // print after that reuses the saved printer.url and skips the picker.
+  const handlePrint = useCallback(async () => {
     setIsPrinting(true);
     setPrintError('');
     try {
-      // Capture the rendered preview (with filters) as a base64 image
-      if (!viewShotRef.current) throw new Error('View ref not ready');
-      const uri = await (viewShotRef.current as any).capture();
+      let activePrinter = printer;
+      if (!activePrinter) {
+        activePrinter = await Print.selectPrinterAsync();
+        setPrinter(activePrinter);
+      }
 
-      await requestPrintWithImage({
-        sessionId,
-        imageUri: uri,
-        filterType: selectedFilter,
-        brightness,
-      });
+      const cssFilter = `brightness(${brightness}%) ${FILTER_CSS[selectedFilter]}`;
+      const html = `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Posta Postcard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .postcard {
+    width: 100%; height: 100%;
+    padding: 50px;
+    display: flex;
+    flex-direction: column;
+  }
+  .image-area {
+    flex: 1; min-height: 0; overflow: hidden;
+  }
+  .image-area img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    display: block;
+    filter: ${cssFilter};
+  }
+  @page { margin: 0; size: 4.25in 6in; }
+</style>
+</head>
+<body>
+<div class="postcard">
+  <div class="image-area">
+    <img src="${imageUrl}" alt="Postcard" />
+  </div>
+</div>
+</body>
+</html>`;
+
+      await Print.printAsync({ html, printerUrl: activePrinter.url });
+
+      // Best-effort status ping — printing already happened on-device either way.
+      notifyPrintStatus(sessionId, 'printed').catch(() => {});
 
       router.push(`/kiosk/print?session=${sessionId}`);
-    } catch (err) {
-      console.error('Server print failed:', err);
+    } catch (err: any) {
+      // User cancelled the printer picker or print sheet — not an error.
+      if (err?.message?.includes('cancel')) {
+        setIsPrinting(false);
+        return;
+      }
+      console.error('Print failed:', err);
       setPrintError('Print failed. Please try again.');
       setIsPrinting(false);
     }
-  }, [sessionId, selectedFilter, brightness, router]);
+  }, [sessionId, selectedFilter, brightness, imageUrl, printer, setPrinter, router]);
 
 
   return (
@@ -116,7 +161,7 @@ export default function PaymentScreen() {
           <View style={styles.btnRow}>
             <TouchableOpacity
               style={[styles.printBtn, isPrinting && styles.btnDisabled]}
-              onPress={handleServerPrint}
+              onPress={handlePrint}
               disabled={isPrinting}
             >
               {isPrinting ? (
@@ -135,24 +180,18 @@ export default function PaymentScreen() {
             </TouchableOpacity>
           </View>
 
+          {printer && (
+            <TouchableOpacity onPress={clearPrinter} disabled={isPrinting}>
+              <Text style={styles.changePrinterText}>
+                Printer: {printer.name} · Change
+              </Text>
+            </TouchableOpacity>
+          )}
+
           {printError !== '' && (
             <Text style={styles.errorText}>{printError}</Text>
           )}
         </View>
-
-        {/* Hidden ViewShot — captures the full postcard at higher resolution for printing */}
-        <ViewShot
-          ref={viewShotRef}
-          options={{ format: 'jpg', quality: 0.95 }}
-          style={styles.hiddenShot}
-        >
-          <PostcardPreview
-            uri={imageUrl || null}
-            filter={selectedFilter}
-            brightness={brightness}
-            width={SHOT_W}
-          />
-        </ViewShot>
 
         <PostaFooter />
       </ImageBackground>
@@ -238,10 +277,9 @@ const styles = StyleSheet.create({
   },
   backBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 15 },
   errorText: { fontSize: 13, color: COLORS.destructive, textAlign: 'center' },
-  hiddenShot: {
-    position: 'absolute',
-    left: -9999,
-    top: -9999,
-    opacity: 0,
+  changePrinterText: {
+    fontSize: 12,
+    color: COLORS.muted,
+    textDecorationLine: 'underline',
   },
 });
