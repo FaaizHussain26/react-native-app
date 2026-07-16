@@ -22,9 +22,10 @@ export default function HomeScreen() {
   const router = useRouter();
   const { width: SW, height: SH } = useWindowDimensions();
   const [isStarting, setIsStarting] = useState(false);
+  const [rowLayout, setRowLayout] = useState({ width: 0, height: 0 });
   const createSessionMutation = useCreateSession();
 
-  const btnSize = Math.min(SW * 0.32, 300);
+  const btnSize = Math.min(SW * 0.4, 380);
   const imgW = Math.min(SW * 1, 500);
   const imgH = Math.min(SH * 0.55, 420);
 
@@ -34,10 +35,15 @@ export default function HomeScreen() {
   const availableRowH = Math.max(SH - FOOTER_HEIGHT_EST - headlineBlockH, 320);
   const imgHPortrait = Math.min(availableRowH * 0.58, (SW * 0.62) / POSTCARD_RATIO);
   const imgWPortrait = imgHPortrait * POSTCARD_RATIO;
-  const btnSizePortrait = Math.max(
-    160,
-    Math.min(availableRowH - imgHPortrait - SPACING.lg, SW * 0.45, 260),
-  );
+  // Landscape image size is derived from the row's real measured height (via onLayout)
+  // rather than the availableRowH estimate, so it can never overflow past the row's
+  // actual on-screen bounds.
+  const measuredRowH = rowLayout.height || availableRowH;
+  const measuredRowW = rowLayout.width || SW;
+  const maxImgWLandscape = measuredRowW * 0.5;
+  const imgHLandscape = Math.min(measuredRowH, maxImgWLandscape / POSTCARD_RATIO);
+  const imgWLandscape = imgHLandscape * POSTCARD_RATIO;
+  const btnSizePortrait = Math.max(160, Math.min(SW * 0.55, 340));
   const activeBtnSize = isPortrait ? btnSizePortrait : btnSize;
 
   const handleStart = async () => {
@@ -76,17 +82,20 @@ export default function HomeScreen() {
       >
         <View style={styles.content}>
           <Text style={[styles.headline, { fontSize: Math.min(SW * 0.045, 48) }]}>
-            Upload Your Favorite Photo,{'\n'}Personalize & Print!
+            Turn your photo into a postcard!
           </Text>
 
-          <View style={[styles.row, isPortrait && styles.rowPortrait]}>
+          <View
+            style={[styles.row, isPortrait && styles.rowPortrait]}
+            onLayout={(e) => setRowLayout(e.nativeEvent.layout)}
+          >
             {/* Left: postcard image */}
             <Image
               source={require('../assets/images/postcard_pic.png')}
               style={
                 isPortrait
                   ? { width: imgWPortrait, height: imgHPortrait, resizeMode: 'contain', borderWidth: 0 }
-                  : { width: '60%', height: '100%', resizeMode: 'contain', borderWidth: 0 }
+                  : { width: imgWLandscape, height: imgHLandscape, resizeMode: 'contain', borderWidth: 0, alignSelf: 'flex-end' }
               }
               resizeMode="contain"
             />
@@ -111,9 +120,9 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               )}
 
-              {/* <Text style={[styles.price, { fontSize: Math.min(SW * 0.03, 32) }]}>
+              <Text style={[styles.price, { fontSize: Math.min(SW * 0.03, 32) }]}>
                 Price: $3.50
-              </Text> */}
+              </Text>
             </View>
           </View>
         </View>
