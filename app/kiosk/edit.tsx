@@ -20,18 +20,18 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
+import { BubbleOption } from '../../components/BubbleOption';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { analyzePhoto } from '../../services/session';
 import { COLORS, FilterType } from '../../constants/theme';
-import { CARD_FRAME } from '../../constants/postcard';
+import { CARD_FRAME, CARD_W_IN, CARD_H_IN } from '../../constants/postcard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const { width: SW } = Dimensions.get('window');
 
-const CARD_W = Math.min(SW * 0.42, 430);
-const CARD_H = CARD_W * (6 / 4.25);
+const SHORT_SIDE_PX = Math.min(SW * 0.42, 430);
 
 const FILTERS = [
   { label: 'Original', value: 'original' },
@@ -41,6 +41,8 @@ const FILTERS = [
   { label: 'Mono', value: 'mono' },
   { label: 'Sepia', value: 'sepia' },
 ];
+
+const COMING_SOON_FILTERS = ['Filter 1', 'Filter 2', 'Filter 3'];
 
 export default function EditScreen() {
   const router = useRouter();
@@ -57,11 +59,15 @@ export default function EditScreen() {
     saturation,
     warmth,
     selectedFilter,
+    orientation,
+    comingSoonFilter,
     setBrightness,
     setContrast,
     setSaturation,
     setWarmth,
     setSelectedFilter,
+    setOrientation,
+    setComingSoonFilter,
     resetFilters,
     resetAll,
   } = useCropStore();
@@ -70,6 +76,9 @@ export default function EditScreen() {
   const safeContrast = typeof contrast === 'number' ? contrast : 100;
   const safeSaturation = typeof saturation === 'number' ? saturation : 100;
   const safeWarmth = typeof warmth === 'number' ? warmth : 0;
+  const LONG_SIDE_PX = SHORT_SIDE_PX * (CARD_H_IN / CARD_W_IN);
+  const CARD_W = orientation === 'landscape' ? LONG_SIDE_PX : SHORT_SIDE_PX;
+  const CARD_H = orientation === 'landscape' ? SHORT_SIDE_PX : LONG_SIDE_PX;
   const safeFilter = selectedFilter || 'original';
 
   const [isFlipped, setIsFlipped] = useState(false);
@@ -180,6 +189,7 @@ console.log("imgUrl:",imageUrl)
                     saturation={safeSaturation}
                     warmth={safeWarmth}
                     width={CARD_W - 16}
+                    orientation={orientation}
                   />
                 </Animated.View>
 
@@ -187,7 +197,7 @@ console.log("imgUrl:",imageUrl)
                 <Animated.View style={[styles.postcard, backStyle]}>
                   <Image
                     source={require('../../assets/images/back-side-1.png')}
-                    style={styles.backImage}
+                    style={[styles.backImage, { width: CARD_W - 16, height: CARD_H - 16 }]}
                     resizeMode="stretch"
                   />
                 </Animated.View>
@@ -205,6 +215,26 @@ console.log("imgUrl:",imageUrl)
             {/* PANEL */}
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Edit Your Photo</Text>
+
+              {/* ORIENTATION */}
+              <View style={styles.section}>
+                <View style={styles.sectionLabelRow}>
+                  <MaterialCommunityIcons name="crop-portrait" size={16} color={COLORS.textPrimary} />
+                  <Text style={styles.sectionLabel}>Orientation</Text>
+                </View>
+                <View style={styles.bubbleRow}>
+                  <BubbleOption
+                    label="Portrait"
+                    selected={orientation === 'portrait'}
+                    onPress={() => setOrientation('portrait')}
+                  />
+                  <BubbleOption
+                    label="Landscape"
+                    selected={orientation === 'landscape'}
+                    onPress={() => setOrientation('landscape')}
+                  />
+                </View>
+              </View>
 
               {/* FILTERS */}
               <View style={styles.section}>
@@ -260,6 +290,25 @@ console.log("imgUrl:",imageUrl)
                   ))}
                 </View>
               </View>
+
+              {/* POSTCARD FILTERS (COMING SOON) */}
+              {/* <View style={styles.section}>
+                <View style={styles.sectionLabelRow}>
+                  <Ionicons name="color-palette-outline" size={16} color={COLORS.textPrimary} />
+                  <Text style={styles.sectionLabel}>Postcard Filters</Text>
+                </View>
+                <View style={styles.bubbleRow}>
+                  {COMING_SOON_FILTERS.map((f) => (
+                    <BubbleOption
+                      key={f}
+                      label={f}
+                      selected={comingSoonFilter === f}
+                      onPress={() => setComingSoonFilter(f)}
+                      badge="Coming Soon"
+                    />
+                  ))}
+                </View>
+              </View> */}
 
               {/* ADJUSTMENTS */}
               <View style={styles.section}>
@@ -398,7 +447,7 @@ const styles = StyleSheet.create({
   logoRow: { alignItems: 'center', marginTop: 8, paddingBottom: 4 },
   dbgLogo: { width: 80, height: 30 },
 
-  backImage: { width: CARD_W - 16, height: CARD_H - 16, borderRadius: 6 },
+  backImage: { borderRadius: 6 },
 
   flipButton: {
     position: 'absolute',
@@ -477,6 +526,11 @@ const styles = StyleSheet.create({
   },
   aiBadgeActive: {
     color: '#FFFFFF',
+  },
+
+  bubbleRow: {
+    flexDirection: 'row',
+    gap: 24,
   },
 
   filterGrid: {

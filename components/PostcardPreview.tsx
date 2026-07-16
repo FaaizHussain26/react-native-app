@@ -12,6 +12,7 @@ interface PostcardPreviewProps {
   saturation?: number;
   warmth?: number;
   width: number;
+  orientation?: 'portrait' | 'landscape';
 }
 
 export const PostcardPreview = ({
@@ -22,18 +23,22 @@ export const PostcardPreview = ({
   saturation,
   warmth,
   width,
+  orientation = 'portrait',
 }: PostcardPreviewProps) => {
-  const height = width * (CARD_H_IN / CARD_W_IN);
+  const aspect = orientation === 'landscape' ? CARD_W_IN / CARD_H_IN : CARD_H_IN / CARD_W_IN;
+  const height = width * aspect;
 
-  // All borders derived from width so proportions stay exact at any size
-  const borderSide   = width * (BORDER_IN / CARD_W_IN);
-  const borderBottom = width * (BOTTOM_IN / CARD_W_IN);
+  // Borders are a fixed real-world size relative to the card's short physical
+  // side (CARD_W_IN), regardless of which screen dimension that maps to.
+  const shortSide = orientation === 'landscape' ? height : width;
+  const borderSide   = shortSide * (BORDER_IN / CARD_W_IN);
+  const borderBottom = shortSide * (BOTTOM_IN / CARD_W_IN);
 
   const imageW = width - borderSide * 2;
   const imageH = height - borderSide - borderBottom;
 
   // Scale font the same way the rest of the card scales
-  const fontSize     = Math.max(7, width * (24 / (CARD_W_IN * 300)));
+  const fontSize     = Math.max(7, shortSide * (24 / (CARD_W_IN * 300)));
   const letterSpacing = fontSize * 0.12;
 
   return (

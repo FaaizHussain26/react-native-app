@@ -3,6 +3,8 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FilterType } from '../constants/theme';
 
+export type Orientation = 'portrait' | 'landscape';
+
 interface CropState {
   croppedImage: string | null;
   brightness: number;
@@ -10,6 +12,8 @@ interface CropState {
   saturation: number;
   warmth: number;
   selectedFilter: FilterType;
+  orientation: Orientation;
+  comingSoonFilter: string | null;
 }
 
 interface CropActions {
@@ -19,6 +23,8 @@ interface CropActions {
   setSaturation: (value: number) => void;
   setWarmth: (value: number) => void;
   setSelectedFilter: (filter: FilterType) => void;
+  setOrientation: (orientation: Orientation) => void;
+  setComingSoonFilter: (filter: string | null) => void;
   clearCroppedImage: () => void;
   resetFilters: () => void;
   resetAll: () => void;
@@ -33,6 +39,8 @@ const initialState: CropState = {
   saturation: 100,
   warmth: 0,
   selectedFilter: 'original',
+  orientation: 'portrait',
+  comingSoonFilter: null,
 };
 
 export const useCropStore = create<CropStore>()(
@@ -52,6 +60,10 @@ export const useCropStore = create<CropStore>()(
 
       setSelectedFilter: (filter) => set({ selectedFilter: filter }),
 
+      setOrientation: (orientation) => set({ orientation }),
+
+      setComingSoonFilter: (filter) => set({ comingSoonFilter: filter }),
+
       clearCroppedImage: () => set({ croppedImage: null }),
 
       resetFilters: () =>
@@ -61,6 +73,7 @@ export const useCropStore = create<CropStore>()(
           saturation: initialState.saturation,
           warmth: initialState.warmth,
           selectedFilter: initialState.selectedFilter,
+          comingSoonFilter: initialState.comingSoonFilter,
           croppedImage: null,
         }),
 
