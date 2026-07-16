@@ -16,6 +16,7 @@ import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
+import { CARD_FRAME } from '../../constants/postcard';
 
 const { width: SW } = Dimensions.get('window');
 const CARD_W = Math.min(SW * 0.34, 360);
@@ -61,7 +62,7 @@ export default function ReviewScreen() {
               >
                 <Image
                   source={require('../../assets/images/back-side-1.png')}
-                  style={{ width: CARD_W, height: CARD_H }}
+                  style={{ width: CARD_W - 16, height: CARD_H - 16, borderRadius: 6 }}
                   resizeMode="stretch"
                 />
               </View>
@@ -75,7 +76,7 @@ export default function ReviewScreen() {
                   contrast={contrast}
                   saturation={saturation}
                   warmth={warmth}
-                  width={CARD_W}
+                  width={CARD_W - 16}
                 />
               </View>
             </View>
@@ -126,16 +127,7 @@ const styles = StyleSheet.create({
     gap: SPACING.lg,
     alignItems: 'flex-start',
   },
-  postcard: {
-    overflow: 'hidden',
-    ...SHADOW.md,
-  },
-  postcardFront: {
-    backgroundColor: COLORS.white,
-    padding: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
+  postcard: CARD_FRAME,
   imgArea: {
     width: '100%',
     overflow: 'hidden',

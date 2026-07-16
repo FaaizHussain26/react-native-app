@@ -24,6 +24,7 @@ import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { analyzePhoto } from '../../services/session';
 import { COLORS, FilterType } from '../../constants/theme';
+import { CARD_FRAME } from '../../constants/postcard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -170,7 +171,7 @@ console.log("imgUrl:",imageUrl)
               <View style={{ width: CARD_W, height: CARD_H }}>
 
                 {/* FRONT */}
-                <Animated.View style={frontStyle}>
+                <Animated.View style={[styles.postcard, frontStyle]}>
                   <PostcardPreview
                     uri={imageUrl}
                     filter={safeFilter}
@@ -178,7 +179,7 @@ console.log("imgUrl:",imageUrl)
                     contrast={safeContrast}
                     saturation={safeSaturation}
                     warmth={safeWarmth}
-                    width={CARD_W}
+                    width={CARD_W - 16}
                   />
                 </Animated.View>
 
@@ -388,16 +389,7 @@ const styles = StyleSheet.create({
   mainRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 36 },
 
   cardWrapper: { position: 'relative' },
-  postcard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 6,
-  },
+  postcard: CARD_FRAME,
 
   imageArea: { justifyContent: 'center', alignItems: 'center' },
   imagePlaceholder: { justifyContent: 'center', alignItems: 'center' },

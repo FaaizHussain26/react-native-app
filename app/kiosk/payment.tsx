@@ -24,6 +24,7 @@ import {
   SHADOW,
   buildCssFilter,
 } from '../../constants/theme';
+import { BORDER_IN, BOTTOM_IN, LOCATION, YEAR } from '../../constants/postcard';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 const CARD_HAND_W = Math.min(SW * 0.24, 300);
@@ -82,7 +83,7 @@ export default function PaymentScreen() {
   }
   .postcard {
     width: 100%; height: 100%;
-    padding: 50px;
+    padding: ${BORDER_IN}in ${BORDER_IN}in 0 ${BORDER_IN}in;
     display: flex;
     flex-direction: column;
   }
@@ -91,9 +92,20 @@ export default function PaymentScreen() {
   }
   .image-area img {
     width: 100%; height: 100%;
-    object-fit: contain;
+    object-fit: cover;
     display: block;
     filter: ${cssFilter};
+  }
+  .caption {
+    height: ${BOTTOM_IN}in;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #5A5248;
+    font-size: 14pt;
+    letter-spacing: 2pt;
+    text-align: center;
   }
   @page { margin: 0; size: 4.25in 6in; }
 </style>
@@ -103,6 +115,7 @@ export default function PaymentScreen() {
   <div class="image-area">
     <img src="${imageUrl}" alt="Postcard" />
   </div>
+  <div class="caption">${LOCATION} · ${YEAR}</div>
 </div>
 </body>
 </html>`;

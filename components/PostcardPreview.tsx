@@ -2,15 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FilteredImage } from './FilteredImage';
 import { FilterType } from '../constants/theme';
-
-// Physical postcard dimensions (inches)
-const CARD_W_IN   = 4.25;
-const CARD_H_IN   = 6;
-const BORDER_IN   = 0.5;   // top, left, right
-const BOTTOM_IN   = 0.75;  // bottom border (thicker, holds text)
-
-const LOCATION = (process.env.EXPO_PUBLIC_LOCATION_NAME ?? 'YOUR LOCATION').toUpperCase();
-const YEAR     = new Date().getFullYear();
+import { CARD_W_IN, CARD_H_IN, BORDER_IN, BOTTOM_IN, LOCATION, YEAR } from '../constants/postcard';
 
 interface PostcardPreviewProps {
   uri: string | null;

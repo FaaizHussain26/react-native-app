@@ -15,6 +15,7 @@ import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
+import { CARD_FRAME } from '../../constants/postcard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SW } = Dimensions.get('window');
@@ -140,7 +141,7 @@ const styles = StyleSheet.create({
     height: 180,
   },
   postcardCard: {
-    ...SHADOW.md,
+    ...CARD_FRAME,
   },
   thankYou: {
     alignItems: 'center',
