@@ -16,6 +16,9 @@ interface PostcardPreviewProps {
   uri: string | null;
   filter: FilterType;
   brightness: number;
+  contrast?: number;
+  saturation?: number;
+  warmth?: number;
   width: number;
 }
 
@@ -23,6 +26,9 @@ export const PostcardPreview = ({
   uri,
   filter,
   brightness,
+  contrast,
+  saturation,
+  warmth,
   width,
 }: PostcardPreviewProps) => {
   const height = width * (CARD_H_IN / CARD_W_IN);
@@ -48,6 +54,9 @@ export const PostcardPreview = ({
               uri={uri}
               filter={filter}
               brightness={brightness}
+              contrast={contrast}
+              saturation={saturation}
+              warmth={warmth}
               width={imageW}
               height={imageH}
               preserveAspectRatio="xMidYMid slice"

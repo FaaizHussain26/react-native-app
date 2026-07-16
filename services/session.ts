@@ -90,11 +90,15 @@ export const notifyPrintStatus = async (
 export interface PhotoAnalysisResult {
   filter: FilterType;
   brightness: number;
+  contrast: number;
+  saturation: number;
+  warmth: number;
 }
 
 /**
  * Ask the backend to analyze the session's uploaded photo (via OpenAI vision)
- * and recommend a filter + brightness, similar to a Lightroom "Auto" suggestion.
+ * and recommend a filter + brightness/contrast/saturation/warmth, similar to a
+ * Lightroom "Auto" suggestion.
  */
 export const analyzePhoto = async (
   sessionId: string,

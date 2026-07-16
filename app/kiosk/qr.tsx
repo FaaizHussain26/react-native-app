@@ -8,7 +8,6 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import { ProgressSteps } from '../../components/ProgressSteps';
@@ -21,24 +20,6 @@ import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SW } = Dimensions.get('window');
-
-const INSTRUCTIONS = [
-  {
-    num: 1,
-    title: 'Open your camera app',
-    desc: "Point your phone's camera at the QR code",
-  },
-  {
-    num: 2,
-    title: 'Tap the notification',
-    desc: 'Your phone will show a link to open',
-  },
-  {
-    num: 3,
-    title: 'Select your photo',
-    desc: 'Choose from your photo library',
-  },
-];
 
 export default function QRScreen() {
   const router = useRouter();
@@ -113,7 +94,7 @@ export default function QRScreen() {
     router.replace('/');
   };
 
-  const qrSize = Math.min(SW * 0.22, 240);
+  const qrSize = Math.min(SW * 0.35, 300);
 
   return (
     <View style={styles.container}>
@@ -128,53 +109,20 @@ export default function QRScreen() {
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.title}>Scan to Upload Your Photo</Text>
-          <Text style={styles.subtitle}>
-            Use your phone&apos;s camera to scan the QR code below and upload
-            your favorite photo.
-          </Text>
+          <Text style={styles.title}>Scan to upload your photo</Text>
 
           <View style={styles.card}>
-            <View style={styles.cardRow}>
-              {/* QR Code column */}
-              <View style={styles.qrCol}>
-                <View style={styles.qrBorder}>
-                  <QRCode
-                    value={mobileUrl || 'https://posta.app'}
-                    size={qrSize}
-                    color={COLORS.textPrimary}
-                    backgroundColor={COLORS.white}
-                  />
-                </View>
-                <View style={styles.expireRow}>
-                  <Ionicons name="time-outline" size={16} color={COLORS.textSecondary} />
-                  <Text style={styles.expireText}>Code expires in 10 minutes</Text>
-                </View>
+            <View style={styles.qrCol}>
+              <View style={styles.qrBorder}>
+                <QRCode
+                  value={mobileUrl || 'https://posta.app'}
+                  size={qrSize}
+                  color={COLORS.textPrimary}
+                  backgroundColor={COLORS.white}
+                />
               </View>
-
-              {/* Divider */}
-              <View style={styles.divider} />
-
-              {/* Instructions column */}
-              <View style={styles.instructCol}>
-                <Text style={styles.howTitle}>How to Upload:</Text>
-                {INSTRUCTIONS.map((item) => (
-                  <View key={item.num} style={styles.instructRow}>
-                    <View style={styles.numCircle}>
-                      <Text style={styles.numText}>{item.num}</Text>
-                    </View>
-                    <View style={styles.instructText}>
-                      <Text style={styles.instructTitle}>{item.title}</Text>
-                      <Text style={styles.instructDesc}>{item.desc}</Text>
-                    </View>
-                  </View>
-                ))}
-                <View style={styles.helpRow}>
-                  <Text style={styles.helpText}>
-                    Having trouble? Ask a staff member for assistance
-                  </Text>
-                </View>
-              </View>
+              <Text style={styles.cameraText}>Use your phone&apos;s camera</Text>
+              <Text style={styles.expireText}>code expires in 10 minutes</Text>
             </View>
           </View>
 
@@ -197,7 +145,8 @@ const styles = StyleSheet.create({
   scroll: {
     alignItems: 'center',
     paddingHorizontal: SPACING.xl,
-    paddingBottom: SPACING.xl,
+    paddingBottom: SPACING.lg,
+    gap:SPACING.lg
   },
   title: {
     fontSize: 36,
@@ -206,32 +155,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: SPACING.lg,
   },
-  subtitle: {
-    fontSize: 15,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    marginTop: SPACING.sm,
-    marginBottom: SPACING.lg,
-    maxWidth: 600,
-  },
   card: {
     backgroundColor: COLORS.white,
     borderRadius: RADIUS.xxl,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: SPACING.xl,
+    padding: SPACING.lg,
     width: '100%',
-    maxWidth: 720,
-    ...SHADOW.sm,
-  },
-  cardRow: {
-    flexDirection: 'row',
-    gap: SPACING.xl,
-    alignItems: 'flex-start',
+    maxWidth: 400,
+    ...SHADOW.md,
   },
   qrCol: {
     alignItems: 'center',
-    flex: 1,
   },
   qrBorder: {
     borderWidth: 4,
@@ -240,69 +175,16 @@ const styles = StyleSheet.create({
     padding: SPACING.sm,
     backgroundColor: COLORS.white,
   },
-  expireRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  cameraText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
     marginTop: SPACING.md,
-    gap: 4,
   },
   expireText: {
     fontSize: 12,
     color: COLORS.textSecondary,
-  },
-  divider: {
-    width: 1,
-    backgroundColor: COLORS.border,
-    alignSelf: 'stretch',
-  },
-  instructCol: {
-    flex: 1,
-    gap: SPACING.lg,
-  },
-  howTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  instructRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-    alignItems: 'flex-start',
-  },
-  numCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  numText: {
-    color: COLORS.white,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  instructText: { flex: 1 },
-  instructTitle: {
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    fontSize: 14,
-  },
-  instructDesc: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  helpRow: {
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    paddingTop: SPACING.md,
-    marginTop: SPACING.sm,
-  },
-  helpText: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
+    marginTop: SPACING.xs,
   },
   backButton: {
     marginTop: SPACING.xl,

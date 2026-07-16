@@ -67,6 +67,31 @@ export const FILTER_CSS: Record<FilterType, string> = {
   sepia: 'sepia(80%)',
 };
 
+export interface PhotoAdjustments {
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  warmth?: number;
+}
+
+// Combines the manual adjustment sliders with the active named filter into a
+// single CSS filter string, shared by the live preview and the printed HTML.
+export const buildCssFilter = (
+  filter: FilterType,
+  adjustments: PhotoAdjustments = {},
+): string => {
+  const { brightness = 100, contrast = 100, saturation = 100, warmth = 0 } = adjustments;
+  return [
+    brightness !== 100 ? `brightness(${brightness}%)` : '',
+    contrast !== 100 ? `contrast(${contrast}%)` : '',
+    saturation !== 100 ? `saturate(${saturation}%)` : '',
+    warmth !== 0 ? `hue-rotate(${warmth}deg)` : '',
+    FILTER_CSS[filter] ?? '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+};
+
 // SVG color matrix values for FilteredImage component (native preview)
 export const FILTER_MATRICES = {
   grayscale: '0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 1 0',

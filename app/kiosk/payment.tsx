@@ -7,7 +7,7 @@ import {
   ImageBackground,
   Image,
   ActivityIndicator,
-  ScrollView,
+  Dimensions,
 } from 'react-native';
 import * as Print from 'expo-print';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -22,14 +22,22 @@ import {
   SPACING,
   RADIUS,
   SHADOW,
-  FILTER_CSS,
+  buildCssFilter,
 } from '../../constants/theme';
+
+const { width: SW, height: SH } = Dimensions.get('window');
+const CARD_HAND_W = Math.min(SW * 0.24, 300);
+const CARD_HAND_H = CARD_HAND_W * (220 / 280);
+const PRICE_CARD_W = Math.min(SW * 0.22, 280);
+// Keep the whole stack comfortably within the shorter dimension so nothing
+// ever needs to scroll, even on smaller iPads.
+const CONTENT_GAP = Math.min(SPACING.xl, SH * 0.025);
 
 export default function PaymentScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { brightness, selectedFilter, croppedImage } = useCropStore();
+  const { brightness, contrast, saturation, warmth, selectedFilter, croppedImage } = useCropStore();
   const { printer, setPrinter, clearPrinter } = usePrinterStore();
 
   const [isPrinting, setIsPrinting] = useState(false);
@@ -57,7 +65,7 @@ export default function PaymentScreen() {
         setPrinter(activePrinter);
       }
 
-      const cssFilter = `brightness(${brightness}%) ${FILTER_CSS[selectedFilter]}`;
+      const cssFilter = buildCssFilter(selectedFilter, { brightness, contrast, saturation, warmth });
       const html = `
 <!DOCTYPE html>
 <html>
@@ -115,11 +123,11 @@ export default function PaymentScreen() {
       setPrintError('Print failed. Please try again.');
       setIsPrinting(false);
     }
-  }, [sessionId, selectedFilter, brightness, imageUrl, printer, setPrinter, router]);
+  }, [sessionId, selectedFilter, brightness, contrast, saturation, warmth, imageUrl, printer, setPrinter, router]);
 
 
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.container}>
       <ImageBackground
         source={require('../../assets/images/background-pattern.png')}
         style={styles.background}
@@ -136,12 +144,12 @@ export default function PaymentScreen() {
           {/* Decorative card-hand image */}
           <Image
             source={require('../../assets/images/card-hand.png')}
-            style={styles.cardHand}
+            style={[styles.cardHand, { width: CARD_HAND_W, height: CARD_HAND_H }]}
             resizeMode="contain"
           />
 
           {/* Price breakdown */}
-          <View style={styles.priceCard}>
+          <View style={[styles.priceCard, { width: PRICE_CARD_W }]}>
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>Postcard</Text>
               <Text style={styles.priceValue}>$3.50</Text>
@@ -195,7 +203,7 @@ export default function PaymentScreen() {
 
         <PostaFooter />
       </ImageBackground>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -207,30 +215,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: SPACING.xl,
-    gap: SPACING.lg,
+    paddingVertical: SPACING.lg,
+    gap: CONTENT_GAP,
   },
   title: {
-    fontSize: 36,
+    fontSize: 42,
     fontWeight: '800',
     color: COLORS.primary,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 16,
     color: COLORS.muted,
     fontWeight: '500',
   },
-  cardHand: {
-    width: 280,
-    height: 220,
-  },
+  cardHand: {},
   priceCard: {
     backgroundColor: COLORS.white,
     borderRadius: RADIUS.xxl,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: SPACING.lg,
-    width: 240,
-    gap: SPACING.xs,
+    padding: SPACING.xl,
+    gap: SPACING.sm,
     ...SHADOW.sm,
   },
   priceRow: {
@@ -238,44 +243,44 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  priceLabel: { color: COLORS.textSecondary, fontSize: 14 },
-  priceValue: { color: COLORS.textPrimary, fontWeight: '600', fontSize: 14 },
+  priceLabel: { color: COLORS.textSecondary, fontSize: 16 },
+  priceValue: { color: COLORS.textPrimary, fontWeight: '600', fontSize: 16 },
   priceDivider: {
     height: 1,
     backgroundColor: COLORS.border,
     marginVertical: SPACING.sm,
   },
-  totalLabel: { color: COLORS.primary, fontSize: 16, fontWeight: '700' },
-  totalValue: { color: COLORS.primary, fontSize: 28, fontWeight: '800' },
+  totalLabel: { color: COLORS.primary, fontSize: 18, fontWeight: '700' },
+  totalValue: { color: COLORS.primary, fontSize: 32, fontWeight: '800' },
   btnRow: {
     flexDirection: 'row',
-    gap: SPACING.lg,
+    gap: SPACING.xl,
     alignItems: 'center',
   },
   printBtn: {
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.full,
-    height: 48,
-    paddingHorizontal: SPACING.xl,
+    height: 56,
+    paddingHorizontal: SPACING.xxl,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 180,
+    minWidth: 220,
     ...SHADOW.md,
   },
   btnDisabled: { opacity: 0.6 },
-  printBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 15 },
+  printBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 17 },
   backBtn: {
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: RADIUS.full,
-    height: 48,
-    paddingHorizontal: SPACING.xl,
+    height: 56,
+    paddingHorizontal: SPACING.xxl,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.white,
-    minWidth: 120,
+    minWidth: 150,
   },
-  backBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 15 },
+  backBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 17 },
   errorText: { fontSize: 13, color: COLORS.destructive, textAlign: 'center' },
   changePrinterText: {
     fontSize: 12,

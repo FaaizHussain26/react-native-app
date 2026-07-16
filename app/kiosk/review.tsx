@@ -10,7 +10,6 @@ import {
   Dimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
@@ -19,20 +18,14 @@ import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
 
 const { width: SW } = Dimensions.get('window');
-const CARD_W = Math.min(SW * 0.26, 280);
+const CARD_W = Math.min(SW * 0.34, 360);
 const CARD_H = CARD_W * (6 / 4.25);
-
-const CONDITIONS = [
-  'High quality print',
-  'Premium postcard paper',
-  'Ready in minutes',
-];
 
 export default function ReviewScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { croppedImage, brightness, selectedFilter } = useCropStore();
+  const { croppedImage, brightness, contrast, saturation, warmth, selectedFilter } = useCropStore();
 
   const imageUrl =
     croppedImage ||
@@ -79,6 +72,9 @@ export default function ReviewScreen() {
                   uri={imageUrl || null}
                   filter={selectedFilter}
                   brightness={brightness}
+                  contrast={contrast}
+                  saturation={saturation}
+                  warmth={warmth}
                   width={CARD_W}
                 />
               </View>
@@ -88,18 +84,6 @@ export default function ReviewScreen() {
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Ready to Print?</Text>
 
-              {/* Conditions */}
-              <View style={styles.conditions}>
-                {CONDITIONS.map((c, i) => (
-                  <View key={i} style={styles.conditionRow}>
-                    <Feather name="check" size={16} color={COLORS.muted} />
-                    <Text style={styles.conditionText}>{c}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.separator} />
-
               <TouchableOpacity
                 style={styles.primaryBtn}
                 onPress={handleProceedToPayment}
@@ -108,16 +92,8 @@ export default function ReviewScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.secondaryBtn} onPress={handleBack}>
-                <Feather name="edit-2" size={15} color={COLORS.primary} />
-                <Text style={styles.secondaryBtnText}>Edit Photo</Text>
+                <Text style={styles.secondaryBtnText}>Go back</Text>
               </TouchableOpacity>
-
-              <View style={styles.disclaimer}>
-                <Text style={styles.disclaimerText}>
-                  By confirming, you agree that the preview accurately represents
-                  your desired postcard.
-                </Text>
-              </View>
             </View>
           </View>
         </ScrollView>
@@ -132,16 +108,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   background: { flex: 1 },
   scroll: {
-    paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.lg,
+    flexGrow: 1,
+    paddingHorizontal: SPACING.xxl,
+    paddingVertical: SPACING.xl,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   mainRow: {
     flexDirection: 'row',
-    gap: SPACING.xl,
-    alignItems: 'flex-start',
+    gap: SPACING.xxl,
+    alignItems: 'stretch',
     width: '100%',
-    maxWidth: 900,
+    maxWidth: 1100,
   },
   cardsRow: {
     flexDirection: 'row',
@@ -173,53 +151,40 @@ const styles = StyleSheet.create({
   dbgLogo: { width: 48, height: 48 },
   panel: {
     flex: 1,
-    maxWidth: 360,
+    maxWidth: 400,
     backgroundColor: COLORS.white,
     borderRadius: RADIUS.xl,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: SPACING.lg,
-    gap: SPACING.md,
+    padding: SPACING.xxl,
+    gap: SPACING.lg,
+    justifyContent: 'center',
     ...SHADOW.md,
   },
   panelTitle: {
-    fontSize: 17,
+    fontSize: 26,
     fontWeight: '700',
     color: COLORS.textPrimary,
-  },
-  conditions: { gap: SPACING.md },
-  conditionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-  },
-  conditionText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginVertical: SPACING.xs,
+    marginBottom: SPACING.sm,
   },
   primaryBtn: {
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.full,
-    height: 48,
+    height: 54,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryBtnText: {
     color: COLORS.white,
     fontWeight: '700',
-    fontSize: 15,
+    fontSize: 16,
   },
   secondaryBtn: {
     flexDirection: 'row',
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: RADIUS.full,
-    height: 48,
+    height: 54,
     alignItems: 'center',
     justifyContent: 'center',
     gap: SPACING.sm,
@@ -228,18 +193,6 @@ const styles = StyleSheet.create({
   secondaryBtnText: {
     color: COLORS.primary,
     fontWeight: '700',
-    fontSize: 15,
-  },
-  disclaimer: {
-    backgroundColor: COLORS.miscLight,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  disclaimerText: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    lineHeight: 18,
+    fontSize: 16,
   },
 });

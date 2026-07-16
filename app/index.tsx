@@ -15,6 +15,9 @@ import PostaFooter from '../components/PostaFooter';
 import { useCreateSession } from '../hooks/useCreateSession';
 import { COLORS, SPACING } from '../constants/theme';
 
+const POSTCARD_RATIO = 1944 / 2080;
+const FOOTER_HEIGHT_EST = 84;
+
 export default function HomeScreen() {
   const router = useRouter();
   const { width: SW, height: SH } = useWindowDimensions();
@@ -22,8 +25,20 @@ export default function HomeScreen() {
   const createSessionMutation = useCreateSession();
 
   const btnSize = Math.min(SW * 0.32, 300);
-  const imgW = Math.min(SW * 0.38, 420);
+  const imgW = Math.min(SW * 1, 500);
   const imgH = Math.min(SH * 0.55, 420);
+
+  const isPortrait = SH >= SW;
+  const headlineFontSizeEst = Math.min(SW * 0.045, 48);
+  const headlineBlockH = headlineFontSizeEst * 2.4 + SPACING.xxl + SPACING.xl;
+  const availableRowH = Math.max(SH - FOOTER_HEIGHT_EST - headlineBlockH, 320);
+  const imgHPortrait = Math.min(availableRowH * 0.58, (SW * 0.62) / POSTCARD_RATIO);
+  const imgWPortrait = imgHPortrait * POSTCARD_RATIO;
+  const btnSizePortrait = Math.max(
+    160,
+    Math.min(availableRowH - imgHPortrait - SPACING.lg, SW * 0.45, 260),
+  );
+  const activeBtnSize = isPortrait ? btnSizePortrait : btnSize;
 
   const handleStart = async () => {
     if (isStarting) return;
@@ -64,18 +79,22 @@ export default function HomeScreen() {
             Upload Your Favorite Photo,{'\n'}Personalize & Print!
           </Text>
 
-          <View style={styles.row}>
+          <View style={[styles.row, isPortrait && styles.rowPortrait]}>
             {/* Left: postcard image */}
             <Image
               source={require('../assets/images/postcard_pic.png')}
-              style={{ width: imgW, height: imgH }}
+              style={
+                isPortrait
+                  ? { width: imgWPortrait, height: imgHPortrait, resizeMode: 'contain', borderWidth: 0 }
+                  : { width: '60%', height: '100%', resizeMode: 'contain', borderWidth: 0 }
+              }
               resizeMode="contain"
             />
 
             {/* Right: start button + price */}
             <View style={styles.rightCol}>
               {isStarting ? (
-                <View style={[styles.loadingContainer, { width: btnSize, height: btnSize }]}>
+                <View style={[styles.loadingContainer, { width: activeBtnSize, height: activeBtnSize }]}>
                   <ActivityIndicator size="large" color={COLORS.primary} />
                   <Text style={styles.loadingText}>Starting session…</Text>
                 </View>
@@ -86,7 +105,7 @@ export default function HomeScreen() {
                 >
                   <Image
                     source={require('../assets/images/start_button.png')}
-                    style={{ width: btnSize, height: btnSize }}
+                    style={{ width: activeBtnSize, height: activeBtnSize }}
                     resizeMode="contain"
                   />
                 </TouchableOpacity>
@@ -118,20 +137,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: SPACING.xl,
+    gap: SPACING.md ,
   },
   headline: {
     fontWeight: '800',
     color: COLORS.primary,
     textAlign: 'center',
     marginBottom: SPACING.xl,
+    marginTop: SPACING.xxl,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: SPACING.xxl,
+    justifyContent: 'space-between',
     width: '100%',
-    maxWidth: 900,
+    flex:1,
+  // paddingHorizontal:'1%',
+  // borderWidth:1
+  },
+  rowPortrait: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: SPACING.lg,
   },
   rightCol: {
     alignItems: 'center',

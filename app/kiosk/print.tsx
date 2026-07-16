@@ -8,6 +8,7 @@ import {
   Image,
   Dimensions,
 } from 'react-native';
+import LottieView from 'lottie-react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
@@ -23,7 +24,7 @@ export default function PrintScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { croppedImage, brightness, selectedFilter, resetAll } = useCropStore();
+  const { croppedImage, brightness, contrast, saturation, warmth, selectedFilter, resetAll } = useCropStore();
 
   const imageUrl =
     croppedImage ||
@@ -56,21 +57,19 @@ export default function PrintScreen() {
         <View style={styles.content}>
           {/* Title */}
           <View style={styles.titleArea}>
-            <Text style={styles.title}>Your Memory is Taking Shape...</Text>
+            <Text style={styles.title}>Your postcard is printing!</Text>
             <Text style={styles.subtitle}>
-              Your postcard is printing now — pick it up at the front desk in
-              just a moment!
-            </Text>
-            <Text style={styles.countdownText}>
-              Returning to home in {countdown}s
+              Your postcard will be ready here shortly, head over to the front
+              desk to pick it up!
             </Text>
           </View>
 
-          {/* Decorative print background image */}
-          <Image
-            source={require('../../assets/images/print-bg.png')}
-            style={styles.printBg}
-            resizeMode="contain"
+          {/* Printer animation */}
+          <LottieView
+            source={require('../../assets/printer-lottie.json')}
+            autoPlay
+            loop
+            style={styles.printerAnimation}
           />
 
           {/* Postcard preview */}
@@ -79,7 +78,20 @@ export default function PrintScreen() {
               uri={imageUrl}
               filter={selectedFilter}
               brightness={brightness}
+              contrast={contrast}
+              saturation={saturation}
+              warmth={warmth}
               width={CARD_W}
+            />
+          </View>
+
+          {/* Thank you */}
+          <View style={styles.thankYou}>
+            <Text style={styles.thankYouText}>Thank you!</Text>
+            <Image
+              source={require('../../assets/images/posta-logo.png')}
+              style={styles.thankYouLogo}
+              resizeMode="contain"
             />
           </View>
 
@@ -87,6 +99,10 @@ export default function PrintScreen() {
           <TouchableOpacity style={styles.newOrderBtn} onPress={handleNewOrder}>
             <Text style={styles.newOrderText}>Print Another Postcard</Text>
           </TouchableOpacity>
+
+          <Text style={styles.countdownText}>
+            Returning to home in {countdown}s
+          </Text>
         </View>
 
         <PostaFooter />
@@ -119,16 +135,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 480,
   },
-  printBg: {
-    width: 300,
-    height: 220,
-    position: 'absolute',
-    opacity: 0.4,
-    top: '8%',
-    left: '30%',
+  printerAnimation: {
+    width: 220,
+    height: 180,
   },
   postcardCard: {
     ...SHADOW.md,
+  },
+  thankYou: {
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  thankYouText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  thankYouLogo: {
+    width: 60,
+    height: 60,
   },
   newOrderBtn: {
     borderWidth: 1.5,

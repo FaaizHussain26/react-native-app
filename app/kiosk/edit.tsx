@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 const { width: SW } = Dimensions.get('window');
 
-const CARD_W = Math.min(SW * 0.3, 310);
+const CARD_W = Math.min(SW * 0.42, 430);
 const CARD_H = CARD_W * (6 / 4.25);
 
 const FILTERS = [
@@ -52,14 +52,23 @@ export default function EditScreen() {
   const {
     croppedImage,
     brightness,
+    contrast,
+    saturation,
+    warmth,
     selectedFilter,
     setBrightness,
+    setContrast,
+    setSaturation,
+    setWarmth,
     setSelectedFilter,
     resetFilters,
     resetAll,
   } = useCropStore();
 
   const safeBrightness = typeof brightness === 'number' ? brightness : 100;
+  const safeContrast = typeof contrast === 'number' ? contrast : 100;
+  const safeSaturation = typeof saturation === 'number' ? saturation : 100;
+  const safeWarmth = typeof warmth === 'number' ? warmth : 0;
   const safeFilter = selectedFilter || 'original';
 
   const [isFlipped, setIsFlipped] = useState(false);
@@ -81,28 +90,28 @@ export default function EditScreen() {
 
   const imageUrl = croppedImage ?? cachedImageUri;
 
-  // AI-recommended filter — analyze the photo once per session visit and
-  // auto-apply the suggestion, unless the customer already made their own pick.
+  // AI-recommended filter — customer taps a button to analyze the photo,
+  // and the suggestion is applied automatically once the response comes back.
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiRecommendedFilter, setAiRecommendedFilter] = useState<FilterType | null>(null);
-  const hasRequestedAnalysisRef = useRef(false);
-  const hasManualEditRef = useRef(false);
 
-  useEffect(() => {
-    if (!sessionId || hasRequestedAnalysisRef.current) return;
-    hasRequestedAnalysisRef.current = true;
+  const handleAnalyzePhoto = () => {
+    if (!sessionId || isAnalyzing) return;
 
     setIsAnalyzing(true);
     analyzePhoto(sessionId)
       .then((result) => {
-        if (hasManualEditRef.current) return;
+        console.log('AI recommendation received:', result);
         setSelectedFilter(result.filter);
         setBrightness(result.brightness);
+        setContrast(result.contrast);
+        setSaturation(result.saturation);
+        setWarmth(result.warmth);
         setAiRecommendedFilter(result.filter);
       })
       .catch((err) => console.error('Photo analysis failed:', err))
       .finally(() => setIsAnalyzing(false));
-  }, [sessionId, setSelectedFilter, setBrightness]);
+  };
 
   const frontStyle = useAnimatedStyle(() => ({
     transform: [{ rotateY: `${flipProgress.value * 180}deg` }],
@@ -148,7 +157,7 @@ console.log("imgUrl:",imageUrl)
     <View style={styles.container}>
       <ImageBackground
         source={require('../../assets/images/background-pattern.png')}
-        style={styles.background}
+        style={styles.background}   
         resizeMode="cover"
       >
         <ProgressSteps currentStep={3} />
@@ -166,6 +175,9 @@ console.log("imgUrl:",imageUrl)
                     uri={imageUrl}
                     filter={safeFilter}
                     brightness={safeBrightness}
+                    contrast={safeContrast}
+                    saturation={safeSaturation}
+                    warmth={safeWarmth}
                     width={CARD_W}
                   />
                 </Animated.View>
@@ -198,10 +210,19 @@ console.log("imgUrl:",imageUrl)
                 <View style={styles.sectionLabelRow}>
                   <Ionicons name="sparkles" size={16} color={COLORS.textPrimary} />
                   <Text style={styles.sectionLabel}>Filters</Text>
-                  {isAnalyzing && (
-                    <Text style={styles.analyzingText}>Analyzing photo…</Text>
-                  )}
                 </View>
+
+                <TouchableOpacity
+                  style={[styles.aiRecommendBtn, isAnalyzing && styles.btnDisabled]}
+                  onPress={handleAnalyzePhoto}
+                  disabled={isAnalyzing}
+                >
+                  <Ionicons name="sparkles" size={14} color={COLORS.primary} />
+                  <Text style={styles.aiRecommendText}>
+                    {isAnalyzing ? 'Analyzing photo…' : 'Get AI Filter Recommendation'}
+                  </Text>
+                </TouchableOpacity>
+
                 <View style={styles.filterGrid}>
                   {FILTERS.map((f) => (
                     <TouchableOpacity
@@ -212,10 +233,7 @@ console.log("imgUrl:",imageUrl)
                           ? styles.filterBtnActive
                           : styles.filterBtnInactive,
                       ]}
-                      onPress={() => {
-                        hasManualEditRef.current = true;
-                        setSelectedFilter(f.value as FilterType);
-                      }}
+                      onPress={() => setSelectedFilter(f.value as FilterType)}
                     >
                       <Text
                         style={[
@@ -242,7 +260,7 @@ console.log("imgUrl:",imageUrl)
                 </View>
               </View>
 
-              {/* BRIGHTNESS */}
+              {/* ADJUSTMENTS */}
               <View style={styles.section}>
                 <View style={styles.sectionLabelRow}>
                   <Feather name="sun" size={16} color={COLORS.textPrimary} />
@@ -258,8 +276,70 @@ console.log("imgUrl:",imageUrl)
                   value={safeBrightness}
                   onValueChange={(val) => {
                     if (typeof val !== 'number') return;
-                    hasManualEditRef.current = true;
                     setBrightness(val);
+                  }}
+                  minimumTrackTintColor={COLORS.primary}
+                  maximumTrackTintColor={COLORS.border}
+                  thumbTintColor="#FFFFFF"
+                />
+
+                <View style={[styles.sectionLabelRow, styles.adjustmentLabelRow]}>
+                  <Feather name="circle" size={16} color={COLORS.textPrimary} />
+                  <Text style={styles.sectionLabel}>
+                    Contrast: {safeContrast}%
+                  </Text>
+                </View>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={50}
+                  maximumValue={150}
+                  step={1}
+                  value={safeContrast}
+                  onValueChange={(val) => {
+                    if (typeof val !== 'number') return;
+                    setContrast(val);
+                  }}
+                  minimumTrackTintColor={COLORS.primary}
+                  maximumTrackTintColor={COLORS.border}
+                  thumbTintColor="#FFFFFF"
+                />
+
+                <View style={[styles.sectionLabelRow, styles.adjustmentLabelRow]}>
+                  <Feather name="droplet" size={16} color={COLORS.textPrimary} />
+                  <Text style={styles.sectionLabel}>
+                    Saturation: {safeSaturation}%
+                  </Text>
+                </View>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={0}
+                  maximumValue={200}
+                  step={1}
+                  value={safeSaturation}
+                  onValueChange={(val) => {
+                    if (typeof val !== 'number') return;
+                    setSaturation(val);
+                  }}
+                  minimumTrackTintColor={COLORS.primary}
+                  maximumTrackTintColor={COLORS.border}
+                  thumbTintColor="#FFFFFF"
+                />
+
+                <View style={[styles.sectionLabelRow, styles.adjustmentLabelRow]}>
+                  <Feather name="thermometer" size={16} color={COLORS.textPrimary} />
+                  <Text style={styles.sectionLabel}>
+                    Warmth: {safeWarmth > 0 ? `+${safeWarmth}` : safeWarmth}
+                  </Text>
+                </View>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={-30}
+                  maximumValue={30}
+                  step={1}
+                  value={safeWarmth}
+                  onValueChange={(val) => {
+                    if (typeof val !== 'number') return;
+                    setWarmth(val);
                   }}
                   minimumTrackTintColor={COLORS.primary}
                   maximumTrackTintColor={COLORS.border}
@@ -275,13 +355,7 @@ console.log("imgUrl:",imageUrl)
                     <Feather name="crop" size={15} color={COLORS.textPrimary} />
                     <Text style={styles.actionLabel}>Crop Image</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionBtn}
-                    onPress={() => {
-                      hasManualEditRef.current = true;
-                      resetFilters();
-                    }}
-                  >
+                  <TouchableOpacity style={styles.actionBtn} onPress={resetFilters}>
                     <Feather name="refresh-cw" size={15} color={COLORS.textPrimary} />
                     <Text style={styles.actionLabel}>Reset</Text>
                   </TouchableOpacity>
@@ -310,8 +384,8 @@ console.log("imgUrl:",imageUrl)
 const styles = StyleSheet.create({
   container: { flex: 1 },
   background: { flex: 1 },
-  scroll: { padding: 20, alignItems: 'center' },
-  mainRow: { flexDirection: 'row', gap: 20 },
+  scroll: { flexGrow: 1, padding: 36, alignItems: 'center', justifyContent: 'center' },
+  mainRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 36 },
 
   cardWrapper: { position: 'relative' },
   postcard: {
@@ -338,9 +412,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -353,10 +427,10 @@ const styles = StyleSheet.create({
   flipLabel: { fontSize: 9, color: COLORS.textPrimary, fontWeight: '500', marginTop: 3 },
 
   panel: {
-    width: 320,
+    width: 360,
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 20,
+    padding: 28,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.10,
@@ -364,30 +438,45 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   panelTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: 16,
+    marginBottom: 22,
   },
 
-  section: { marginBottom: 14 },
+  section: { marginBottom: 22 },
   sectionLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
+    gap: 8,
+    marginBottom: 10,
+  },
+  adjustmentLabelRow: {
+    marginTop: 14,
   },
   sectionLabel: {
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.textPrimary,
   },
-  analyzingText: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    color: COLORS.muted,
-    marginLeft: 4,
+  aiRecommendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 10,
   },
+  aiRecommendText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+  btnDisabled: { opacity: 0.6 },
   aiBadge: {
     fontSize: 9,
     fontWeight: '600',
@@ -401,12 +490,12 @@ const styles = StyleSheet.create({
   filterGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   filterBtn: {
     width: '30%',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 13,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
   },
@@ -422,16 +511,16 @@ const styles = StyleSheet.create({
   filterLabelActive: { color: '#FFFFFF' },
   filterLabelInactive: { color: COLORS.muted },
 
-  slider: { width: '100%', height: 36, marginTop: 2 },
+  slider: { width: '100%', height: 36, marginTop: 4 },
 
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  actionRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
   actionBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 11,
+    paddingVertical: 13,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -446,15 +535,15 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: COLORS.border,
-    marginVertical: 16,
+    marginVertical: 22,
   },
 
   primaryBtn: {
     backgroundColor: COLORS.primary,
     borderRadius: 9999,
-    paddingVertical: 16,
+    paddingVertical: 17,
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   primaryBtnText: {
     color: '#FFFFFF',
