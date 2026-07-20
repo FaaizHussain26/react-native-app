@@ -20,6 +20,7 @@ const IdleModal = ({ visible, onStayHere }: IdleModalProps) => {
       transparent
       animationType="fade"
       statusBarTranslucent
+      supportedOrientations={['landscape', 'landscape-left', 'landscape-right']}
     >
       <View style={styles.overlay}>
         <View style={styles.card}>

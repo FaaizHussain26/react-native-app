@@ -10,13 +10,14 @@ type UseIdleActivityOptions = {
  * Shows an "idle" modal after inactivity, then fires a callback if the user
  * remains idle for an additional period.
  *
- * Defaults: 90 s until modal, 30 s after modal until callback.
+ * Defaults: 90 s until modal, 20 s after modal until callback.
  */
 const useIdleActivity = (
   callback: () => void,
-  { idleModalMs = 90_000, redirectMs = 30_000 }: UseIdleActivityOptions = {},
+  { idleModalMs = 90_000, redirectMs = 20_000 }: UseIdleActivityOptions = {},
 ) => {
   const [showModal, setShowModal] = useState(false);
+  const modalShownRef = useRef(false);
   const lastActivityTime = useRef(Date.now());
   const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbackRef = useRef(callback);
@@ -24,6 +25,7 @@ const useIdleActivity = (
 
   const resetIdleTimer = useCallback(() => {
     lastActivityTime.current = Date.now();
+    modalShownRef.current = false;
     if (redirectTimeoutRef.current) {
       clearTimeout(redirectTimeoutRef.current);
       redirectTimeoutRef.current = null;
@@ -48,7 +50,8 @@ const useIdleActivity = (
     const checkIdleTime = () => {
       const idleTime = Date.now() - lastActivityTime.current;
 
-      if (!showModal && idleTime >= idleModalMs) {
+      if (!modalShownRef.current && idleTime >= idleModalMs) {
+        modalShownRef.current = true;
         setShowModal(true);
         redirectTimeoutRef.current = setTimeout(() => {
           callbackRef.current();
@@ -64,7 +67,7 @@ const useIdleActivity = (
         redirectTimeoutRef.current = null;
       }
     };
-  }, [idleModalMs, redirectMs, showModal]);
+  }, [idleModalMs, redirectMs]);
 
   return { showModal, resetIdleTimer };
 };
