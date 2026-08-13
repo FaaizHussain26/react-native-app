@@ -13,6 +13,10 @@ interface CropState {
   warmth: number;
   selectedFilter: FilterType;
   orientation: Orientation;
+  // True once the customer has explicitly picked Portrait/Landscape, so a
+  // later auto-detection pass (e.g. re-running on a fresh crop, or on an
+  // edit-screen remount) can never silently overwrite their choice.
+  orientationManuallySet: boolean;
   comingSoonFilter: string | null;
 }
 
@@ -24,6 +28,7 @@ interface CropActions {
   setWarmth: (value: number) => void;
   setSelectedFilter: (filter: FilterType) => void;
   setOrientation: (orientation: Orientation) => void;
+  setAutoDetectedOrientation: (orientation: Orientation) => void;
   setComingSoonFilter: (filter: string | null) => void;
   clearCroppedImage: () => void;
   resetFilters: () => void;
@@ -40,6 +45,7 @@ const initialState: CropState = {
   warmth: 0,
   selectedFilter: 'original',
   orientation: 'portrait',
+  orientationManuallySet: false,
   comingSoonFilter: null,
 };
 
@@ -60,7 +66,12 @@ export const useCropStore = create<CropStore>()(
 
       setSelectedFilter: (filter) => set({ selectedFilter: filter }),
 
-      setOrientation: (orientation) => set({ orientation }),
+      setOrientation: (orientation) => set({ orientation, orientationManuallySet: true }),
+
+      // Only takes effect if the customer hasn't manually chosen an
+      // orientation yet — see the CropState.orientationManuallySet comment.
+      setAutoDetectedOrientation: (orientation) =>
+        set((state) => (state.orientationManuallySet ? {} : { orientation })),
 
       setComingSoonFilter: (filter) => set({ comingSoonFilter: filter }),
 

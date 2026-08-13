@@ -14,7 +14,6 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
 } from 'react-native-reanimated';
-import Slider from '@react-native-community/slider';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressSteps } from '../../components/ProgressSteps';
@@ -24,6 +23,8 @@ import { BubbleOption } from '../../components/BubbleOption';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { analyzePhoto } from '../../services/session';
+import IdleModal from '../../components/IdleModal';
+import useIdleActivity from '../../hooks/useIdleActivity';
 import { COLORS, FilterType } from '../../constants/theme';
 import { CARD_FRAME, CARD_W_IN, CARD_H_IN } from '../../constants/postcard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -67,10 +68,16 @@ export default function EditScreen() {
     setWarmth,
     setSelectedFilter,
     setOrientation,
+    setAutoDetectedOrientation,
     setComingSoonFilter,
     resetFilters,
     resetAll,
   } = useCropStore();
+
+  const { showModal, resetIdleTimer } = useIdleActivity(() => {
+    resetAll();
+    router.replace('/');
+  });
 
   const safeBrightness = typeof brightness === 'number' ? brightness : 100;
   const safeContrast = typeof contrast === 'number' ? contrast : 100;
@@ -99,6 +106,22 @@ export default function EditScreen() {
   }, [remoteImageUrl, croppedImage, sessionId]);
 
   const imageUrl = croppedImage ?? cachedImageUri;
+
+  // Auto-detect the photo's real orientation from its actual pixel
+  // dimensions as soon as it's available, so a landscape photo doesn't
+  // sit in the default portrait frame until the customer manually flips it.
+  // Uses the guarded setter so this can't fire again later (e.g. on a
+  // remount, or after a fresh crop) and silently stomp a manual choice.
+  useEffect(() => {
+    if (!imageUrl) return;
+    Image.getSize(
+      imageUrl,
+      (width, height) => {
+        setAutoDetectedOrientation(width > height ? 'landscape' : 'portrait');
+      },
+      (err) => console.error('Failed to read image size for orientation:', err),
+    );
+  }, [imageUrl, setAutoDetectedOrientation]);
 
   // AI-recommended filter — customer taps a button to analyze the photo,
   // and the suggestion is applied automatically once the response comes back.
@@ -162,9 +185,15 @@ export default function EditScreen() {
     router.replace('/');
   };
 
-console.log("imgUrl:",imageUrl) 
+console.log("imgUrl:",imageUrl)
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onStartShouldSetResponderCapture={() => {
+        resetIdleTimer();
+        return false;
+      }}
+    >
       <ImageBackground
         source={require('../../assets/images/background-pattern.png')}
         style={styles.background}   
@@ -310,93 +339,6 @@ console.log("imgUrl:",imageUrl)
                 </View>
               </View> */}
 
-              {/* ADJUSTMENTS */}
-              <View style={styles.section}>
-                <View style={styles.sectionLabelRow}>
-                  <Feather name="sun" size={16} color={COLORS.textPrimary} />
-                  <Text style={styles.sectionLabel}>
-                    Brightness: {safeBrightness}%
-                  </Text>
-                </View>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={50}
-                  maximumValue={150}
-                  step={1}
-                  value={safeBrightness}
-                  onValueChange={(val) => {
-                    if (typeof val !== 'number') return;
-                    setBrightness(val);
-                  }}
-                  minimumTrackTintColor={COLORS.primary}
-                  maximumTrackTintColor={COLORS.border}
-                  thumbTintColor="#FFFFFF"
-                />
-
-                <View style={[styles.sectionLabelRow, styles.adjustmentLabelRow]}>
-                  <Feather name="circle" size={16} color={COLORS.textPrimary} />
-                  <Text style={styles.sectionLabel}>
-                    Contrast: {safeContrast}%
-                  </Text>
-                </View>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={50}
-                  maximumValue={150}
-                  step={1}
-                  value={safeContrast}
-                  onValueChange={(val) => {
-                    if (typeof val !== 'number') return;
-                    setContrast(val);
-                  }}
-                  minimumTrackTintColor={COLORS.primary}
-                  maximumTrackTintColor={COLORS.border}
-                  thumbTintColor="#FFFFFF"
-                />
-
-                <View style={[styles.sectionLabelRow, styles.adjustmentLabelRow]}>
-                  <Feather name="droplet" size={16} color={COLORS.textPrimary} />
-                  <Text style={styles.sectionLabel}>
-                    Saturation: {safeSaturation}%
-                  </Text>
-                </View>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={0}
-                  maximumValue={200}
-                  step={1}
-                  value={safeSaturation}
-                  onValueChange={(val) => {
-                    if (typeof val !== 'number') return;
-                    setSaturation(val);
-                  }}
-                  minimumTrackTintColor={COLORS.primary}
-                  maximumTrackTintColor={COLORS.border}
-                  thumbTintColor="#FFFFFF"
-                />
-
-                <View style={[styles.sectionLabelRow, styles.adjustmentLabelRow]}>
-                  <Feather name="thermometer" size={16} color={COLORS.textPrimary} />
-                  <Text style={styles.sectionLabel}>
-                    Warmth: {safeWarmth > 0 ? `+${safeWarmth}` : safeWarmth}
-                  </Text>
-                </View>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={-30}
-                  maximumValue={30}
-                  step={1}
-                  value={safeWarmth}
-                  onValueChange={(val) => {
-                    if (typeof val !== 'number') return;
-                    setWarmth(val);
-                  }}
-                  minimumTrackTintColor={COLORS.primary}
-                  maximumTrackTintColor={COLORS.border}
-                  thumbTintColor="#FFFFFF"
-                />
-              </View>
-
               {/* QUICK ACTIONS */}
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>Quick Actions</Text>
@@ -427,6 +369,8 @@ console.log("imgUrl:",imageUrl)
 
         <PostaFooter />
       </ImageBackground>
+
+      <IdleModal visible={showModal} onStayHere={resetIdleTimer} />
     </View>
   );
 }
@@ -492,9 +436,6 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  adjustmentLabelRow: {
-    marginTop: 14,
-  },
   sectionLabel: {
     fontSize: 14,
     fontWeight: '600',
@@ -556,8 +497,6 @@ const styles = StyleSheet.create({
   filterLabel: { fontSize: 14, fontWeight: '500' },
   filterLabelActive: { color: '#FFFFFF' },
   filterLabelInactive: { color: COLORS.muted },
-
-  slider: { width: '100%', height: 36, marginTop: 4 },
 
   actionRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
   actionBtn: {

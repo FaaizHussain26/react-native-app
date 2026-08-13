@@ -97,7 +97,13 @@ export default function QRScreen() {
   const qrSize = Math.min(SW * 0.35, 300);
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onStartShouldSetResponderCapture={() => {
+        resetIdleTimer();
+        return false;
+      }}
+    >
       <ImageBackground
         source={require('../../assets/images/background-pattern.png')}
         style={styles.background}

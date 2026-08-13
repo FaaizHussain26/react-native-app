@@ -6,7 +6,7 @@ import Svg, {
   FeColorMatrix,
   Defs,
 } from 'react-native-svg';
-import { FilterType, FILTER_MATRICES } from '../constants/theme';
+import { FilterType, FILTER_CSS } from '../constants/theme';
 
 interface FilteredImageProps {
   uri: string;
@@ -84,23 +84,73 @@ const hueRotateMatrix = (deg: number): ColorMatrix => {
   ];
 };
 
-// Matches the per-filter behavior of the original, proven-working implementation.
-const namedFilterMatrix = (filter: FilterType): ColorMatrix | null => {
-  switch (filter) {
-    case 'mono':
-      return FILTER_MATRICES.grayscale.split(/\s+/).map(Number);
-    case 'sepia':
-      return FILTER_MATRICES.sepia80.split(/\s+/).map(Number);
-    case 'warm':
-      return saturateMatrix(1.4);
-    case 'cool':
-      return saturateMatrix(0.9);
-    case 'pastel':
-      return saturateMatrix(0.7);
-    default:
-      return null;
-  }
+const brightnessMatrix = (percent: number): ColorMatrix => {
+  const b = percent / 100;
+  return [
+    b, 0, 0, 0, 0,
+    0, b, 0, 0, 0,
+    0, 0, b, 0, 0,
+    0, 0, 0, 1, 0,
+  ];
 };
+
+// W3C filter-effects sepia(100%) matrix — sepia(amount%) linearly interpolates
+// between the identity matrix and this one, same as the spec's formula.
+const SEPIA_MATRIX: ColorMatrix = [
+  0.393, 0.769, 0.189, 0, 0,
+  0.349, 0.686, 0.168, 0, 0,
+  0.272, 0.534, 0.131, 0, 0,
+  0, 0, 0, 1, 0,
+];
+
+const sepiaMatrix = (percent: number): ColorMatrix => {
+  const amount = percent / 100;
+  return IDENTITY_MATRIX.map((v, i) => v * (1 - amount) + SEPIA_MATRIX[i] * amount);
+};
+
+// Parses a CSS `filter` string (e.g. "sepia(30%) saturate(160%) hue-rotate(-14deg)")
+// and composes the equivalent SVG color matrix using the exact same functions
+// CSS applies, in the same left-to-right order — so the on-screen preview can
+// never silently drift from FILTER_CSS (the same recipe used for the printed
+// postcard) the way a hand-duplicated per-filter matrix could.
+const cssFilterStringToMatrix = (css: string): ColorMatrix | null => {
+  let matrix: ColorMatrix | null = null;
+  const fnRe = /([\w-]+)\(([-\d.]+)(?:%|deg)?\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = fnRe.exec(css))) {
+    const [, fn, rawValue] = match;
+    const value = parseFloat(rawValue);
+    let m: ColorMatrix | null = null;
+    switch (fn) {
+      case 'sepia':
+        m = sepiaMatrix(value);
+        break;
+      case 'saturate':
+        m = saturateMatrix(value / 100);
+        break;
+      case 'grayscale':
+        // grayscale(amount%) is defined by the same formula as saturate(1 - amount).
+        m = saturateMatrix(1 - value / 100);
+        break;
+      case 'hue-rotate':
+        m = hueRotateMatrix(value);
+        break;
+      case 'brightness':
+        m = brightnessMatrix(value);
+        break;
+      case 'contrast':
+        m = contrastMatrix(value);
+        break;
+      default:
+        m = null;
+    }
+    if (m) matrix = matrix ? multiplyColorMatrices(m, matrix) : m;
+  }
+  return matrix;
+};
+
+const namedFilterMatrix = (filter: FilterType): ColorMatrix | null =>
+  cssFilterStringToMatrix(FILTER_CSS[filter] ?? '');
 
 export const FilteredImage = ({
   uri,

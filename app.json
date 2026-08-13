@@ -22,6 +22,8 @@
         "NSCameraUsageDescription": "Camera access needed to capture photos for postcards.",
         "NSPhotoLibraryUsageDescription": "Photo library access needed to upload photos for postcards.",
         "NSLocationWhenInUseUsageDescription": "Location is used to display your kiosk's city on the postcard.",
+        "NSLocalNetworkUsageDescription": "Posta Kiosk uses your local network to find and connect to AirPrint printers.",
+        "NSBonjourServices": ["_ipp._tcp", "_ipps._tcp"],
         "UIRequiresFullScreen": true,
         "ITSAppUsesNonExemptEncryption": false
       }

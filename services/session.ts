@@ -38,7 +38,7 @@ export const uploadSessionImage = async (params: {
     `/session/${params.sessionId}/image`,
     formData,
     {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
     },
   );
 

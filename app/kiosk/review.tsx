@@ -14,23 +14,33 @@ import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
+import IdleModal from '../../components/IdleModal';
+import useIdleActivity from '../../hooks/useIdleActivity';
 import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
-import { CARD_FRAME } from '../../constants/postcard';
+import { CARD_FRAME, CARD_W_IN, CARD_H_IN } from '../../constants/postcard';
 
 const { width: SW } = Dimensions.get('window');
-const CARD_W = Math.min(SW * 0.34, 360);
-const CARD_H = CARD_W * (6 / 4.25);
+const SHORT_SIDE = Math.min(SW * 0.34, 360);
+const LONG_SIDE = SHORT_SIDE * (CARD_H_IN / CARD_W_IN);
 
 export default function ReviewScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { croppedImage, brightness, contrast, saturation, warmth, selectedFilter } = useCropStore();
+  const { croppedImage, brightness, contrast, saturation, warmth, selectedFilter, orientation, resetAll } = useCropStore();
 
   const imageUrl =
     croppedImage ||
     (sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : '');
+
+  const CARD_W = orientation === 'landscape' ? LONG_SIDE : SHORT_SIDE;
+  const CARD_H = orientation === 'landscape' ? SHORT_SIDE : LONG_SIDE;
+
+  const { showModal, resetIdleTimer } = useIdleActivity(() => {
+    resetAll();
+    router.replace('/');
+  });
 
   const handleProceedToPayment = () => {
     router.push(`/kiosk/payment?session=${sessionId}`);
@@ -41,7 +51,13 @@ export default function ReviewScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onStartShouldSetResponderCapture={() => {
+        resetIdleTimer();
+        return false;
+      }}
+    >
       <ImageBackground
         source={require('../../assets/images/background-pattern.png')}
         style={styles.background}
@@ -77,6 +93,7 @@ export default function ReviewScreen() {
                   saturation={saturation}
                   warmth={warmth}
                   width={CARD_W - 16}
+                  orientation={orientation}
                 />
               </View>
             </View>
@@ -101,6 +118,8 @@ export default function ReviewScreen() {
 
         <PostaFooter />
       </ImageBackground>
+
+      <IdleModal visible={showModal} onStayHere={resetIdleTimer} />
     </View>
   );
 }

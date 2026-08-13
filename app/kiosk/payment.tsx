@@ -15,6 +15,8 @@ import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
 import { useCropStore } from '../../stores/cropStore';
 import { usePrinterStore } from '../../stores/printerStore';
+import IdleModal from '../../components/IdleModal';
+import useIdleActivity from '../../hooks/useIdleActivity';
 import { API_BASE_URL } from '../../services/api';
 import { notifyPrintStatus } from '../../services/session';
 import {
@@ -24,7 +26,7 @@ import {
   SHADOW,
   buildCssFilter,
 } from '../../constants/theme';
-import { BORDER_IN, BOTTOM_IN, LOCATION, YEAR } from '../../constants/postcard';
+import { BORDER_IN, BOTTOM_IN, CARD_W_IN, CARD_H_IN, LOCATION, YEAR } from '../../constants/postcard';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 const CARD_HAND_W = Math.min(SW * 0.24, 300);
@@ -38,11 +40,21 @@ export default function PaymentScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { brightness, contrast, saturation, warmth, selectedFilter, croppedImage } = useCropStore();
+  const { brightness, contrast, saturation, warmth, selectedFilter, croppedImage, orientation, resetAll } = useCropStore();
   const { printer, setPrinter, clearPrinter } = usePrinterStore();
 
   const [isPrinting, setIsPrinting] = useState(false);
   const [printError, setPrintError] = useState('');
+
+  const { showModal, resetIdleTimer } = useIdleActivity(
+    () => {
+      resetAll();
+      router.replace('/');
+    },
+    // Longer than the app default (45s/20s) since this is the highest-stakes
+    // screen to get silently bounced from mid-payment/print.
+    { enabled: !isPrinting, idleModalMs: 90_000, redirectMs: 30_000 },
+  );
 
   const imageUrl =
     croppedImage ||
@@ -67,6 +79,8 @@ export default function PaymentScreen() {
       }
 
       const cssFilter = buildCssFilter(selectedFilter, { brightness, contrast, saturation, warmth });
+      const pageWidthIn = orientation === 'landscape' ? CARD_H_IN : CARD_W_IN;
+      const pageHeightIn = orientation === 'landscape' ? CARD_W_IN : CARD_H_IN;
       const html = `
 <!DOCTYPE html>
 <html>
@@ -107,7 +121,7 @@ export default function PaymentScreen() {
     letter-spacing: 2pt;
     text-align: center;
   }
-  @page { margin: 0; size: 4.25in 6in; }
+  @page { margin: 0; size: ${pageWidthIn}in ${pageHeightIn}in; }
 </style>
 </head>
 <body>
@@ -135,12 +149,22 @@ export default function PaymentScreen() {
       console.error('Print failed:', err);
       setPrintError('Print failed. Please try again.');
       setIsPrinting(false);
+      // Give the operator a fresh full idle window to read the error and
+      // retry — otherwise a countdown that kept running (unseen) during a
+      // native printer dialog could bounce them home almost immediately.
+      resetIdleTimer();
     }
-  }, [sessionId, selectedFilter, brightness, contrast, saturation, warmth, imageUrl, printer, setPrinter, router]);
+  }, [sessionId, selectedFilter, brightness, contrast, saturation, warmth, imageUrl, orientation, printer, setPrinter, router, resetIdleTimer]);
 
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onStartShouldSetResponderCapture={() => {
+        resetIdleTimer();
+        return false;
+      }}
+    >
       <ImageBackground
         source={require('../../assets/images/background-pattern.png')}
         style={styles.background}
@@ -216,6 +240,8 @@ export default function PaymentScreen() {
 
         <PostaFooter />
       </ImageBackground>
+
+      <IdleModal visible={showModal} onStayHere={resetIdleTimer} />
     </View>
   );
 }

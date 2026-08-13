@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,18 +18,18 @@ import Animated, {
   useAnimatedStyle,
   withDecay,
   clamp,
+  runOnJS,
 } from 'react-native-reanimated';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useCropStore } from '../../stores/cropStore';
+import IdleModal from '../../components/IdleModal';
+import useIdleActivity from '../../hooks/useIdleActivity';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
+import { CARD_W_IN, CARD_H_IN, BORDER_IN, BOTTOM_IN } from '../../constants/postcard';
 
 const { width: SW, height: SH } = Dimensions.get('window');
-
-// Crop frame matches the inner image area ratio: 3.25 × 4.75 inches
-const CROP_FRAME_W = Math.min(SW * 0.35, 320);
-const CROP_FRAME_H = CROP_FRAME_W * (4.75 / 3.25);
 
 // The display area behind the crop frame
 const DISPLAY_W = SW * 0.65;
@@ -41,10 +41,43 @@ export default function CropScreen() {
     useLocalSearchParams<{ image: string; session: string }>();
 
   const imageUrl = decodeURIComponent(encodedImageUrl);
-  const { setCroppedImage } = useCropStore();
+  const { setCroppedImage, resetAll, orientation } = useCropStore();
 
   const [isCropping, setIsCropping] = useState(false);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+
+  // The crop frame mirrors the postcard's actual front-image area for the
+  // current orientation, so cropping a landscape photo doesn't force it
+  // into the portrait card shape (and vice versa).
+  const { CROP_FRAME_W, CROP_FRAME_H, frameLeft, frameTop } = useMemo(() => {
+    const pageWidthIn = orientation === 'landscape' ? CARD_H_IN : CARD_W_IN;
+    const pageHeightIn = orientation === 'landscape' ? CARD_W_IN : CARD_H_IN;
+    const innerWIn = pageWidthIn - 2 * BORDER_IN;
+    const innerHIn = pageHeightIn - BORDER_IN - BOTTOM_IN;
+
+    const shortIn = Math.min(innerWIn, innerHIn);
+    const longIn = Math.max(innerWIn, innerHIn);
+    const shortPx = Math.min(SW * 0.35, 320);
+    const longPx = shortPx * (longIn / shortIn);
+
+    const frameW = innerWIn >= innerHIn ? longPx : shortPx;
+    const frameH = innerWIn >= innerHIn ? shortPx : longPx;
+
+    return {
+      CROP_FRAME_W: frameW,
+      CROP_FRAME_H: frameH,
+      frameLeft: (DISPLAY_W - frameW) / 2,
+      frameTop: (DISPLAY_H - frameH) / 2,
+    };
+  }, [orientation]);
+
+  const { showModal, resetIdleTimer } = useIdleActivity(
+    () => {
+      resetAll();
+      router.replace('/');
+    },
+    { enabled: !isCropping },
+  );
 
   // Pan offset of the image within the display area
   const translateX = useSharedValue(0);
@@ -60,6 +93,7 @@ export default function CropScreen() {
     .onBegin(() => {
       startX.value = translateX.value;
       startY.value = translateY.value;
+      runOnJS(resetIdleTimer)();
     })
     .onUpdate((e) => {
       translateX.value = startX.value + e.translationX;
@@ -69,6 +103,7 @@ export default function CropScreen() {
   const pinchGesture = Gesture.Pinch()
     .onBegin(() => {
       startScale.value = scale.value;
+      runOnJS(resetIdleTimer)();
     })
     .onUpdate((e) => {
       scale.value = clamp(startScale.value * e.scale, 0.5, 4);
@@ -126,11 +161,8 @@ export default function CropScreen() {
       const imgLeft = DISPLAY_W / 2 - displayedImgW / 2 + translateX.value;
       const imgTop = DISPLAY_H / 2 - displayedImgH / 2 + translateY.value;
 
-      // Crop frame is centered in the display area
-      const frameLeft = (DISPLAY_W - CROP_FRAME_W) / 2;
-      const frameTop = (DISPLAY_H - CROP_FRAME_H) / 2;
-
       // Where the frame sits inside the displayed image
+      // (frameLeft/frameTop come from the orientation-aware geometry above)
       const relX = frameLeft - imgLeft;
       const relY = frameTop - imgTop;
 
@@ -160,14 +192,32 @@ export default function CropScreen() {
     } finally {
       setIsCropping(false);
     }
-  }, [imageUrl, imageSize, translateX, translateY, scale, setCroppedImage, router]);
+  }, [
+    imageUrl,
+    imageSize,
+    translateX,
+    translateY,
+    scale,
+    CROP_FRAME_W,
+    CROP_FRAME_H,
+    frameLeft,
+    frameTop,
+    setCroppedImage,
+    router,
+  ]);
 
   const handleCancel = () => {
     router.back();
   };
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onStartShouldSetResponderCapture={() => {
+        resetIdleTimer();
+        return false;
+      }}
+    >
       <ImageBackground
         source={require('../../assets/images/background-pattern.png')}
         style={styles.background}
@@ -200,13 +250,37 @@ export default function CropScreen() {
               />
 
               {/* Dark overlay outside crop frame */}
-              <View style={styles.overlayTop} />
-              <View style={styles.overlayBottom} />
-              <View style={styles.overlayLeft} />
-              <View style={styles.overlayRight} />
+              <View style={[styles.overlayTop, { height: frameTop }]} />
+              <View
+                style={[
+                  styles.overlayBottom,
+                  { height: DISPLAY_H - frameTop - CROP_FRAME_H },
+                ]}
+              />
+              <View
+                style={[
+                  styles.overlayLeft,
+                  { top: frameTop, width: frameLeft, height: CROP_FRAME_H },
+                ]}
+              />
+              <View
+                style={[
+                  styles.overlayRight,
+                  {
+                    top: frameTop,
+                    width: DISPLAY_W - frameLeft - CROP_FRAME_W,
+                    height: CROP_FRAME_H,
+                  },
+                ]}
+              />
 
               {/* Crop frame border */}
-              <View style={styles.cropFrame}>
+              <View
+                style={[
+                  styles.cropFrame,
+                  { top: frameTop, left: frameLeft, width: CROP_FRAME_W, height: CROP_FRAME_H },
+                ]}
+              >
                 {/* Corner handles */}
                 <View style={[styles.corner, styles.cornerTL]} />
                 <View style={[styles.corner, styles.cornerTR]} />
@@ -236,12 +310,11 @@ export default function CropScreen() {
           </TouchableOpacity>
         </View>
       </ImageBackground>
+
+      <IdleModal visible={showModal} onStayHere={resetIdleTimer} />
     </View>
   );
 }
-
-const frameLeft = (DISPLAY_W - CROP_FRAME_W) / 2;
-const frameTop = (DISPLAY_H - CROP_FRAME_H) / 2;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
@@ -281,13 +354,13 @@ const styles = StyleSheet.create({
     height: DISPLAY_H,
     position: 'absolute',
   },
-  // Overlay quadrants
+  // Overlay quadrants — geometry (top/left/width/height) is orientation-
+  // dependent and applied as inline style overrides at render time.
   overlayTop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: frameTop,
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   overlayBottom: {
@@ -295,31 +368,20 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: DISPLAY_H - frameTop - CROP_FRAME_H,
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   overlayLeft: {
     position: 'absolute',
-    top: frameTop,
     left: 0,
-    width: frameLeft,
-    height: CROP_FRAME_H,
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   overlayRight: {
     position: 'absolute',
-    top: frameTop,
     right: 0,
-    width: DISPLAY_W - frameLeft - CROP_FRAME_W,
-    height: CROP_FRAME_H,
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   cropFrame: {
     position: 'absolute',
-    top: frameTop,
-    left: frameLeft,
-    width: CROP_FRAME_W,
-    height: CROP_FRAME_H,
     borderWidth: 2,
     borderColor: COLORS.white,
   },

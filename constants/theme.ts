@@ -60,11 +60,11 @@ export type FilterType = 'original' | 'warm' | 'cool' | 'pastel' | 'mono' | 'sep
 // CSS filter strings for expo-print HTML (exact match to web app)
 export const FILTER_CSS: Record<FilterType, string> = {
   original: '',
-  warm: 'sepia(20%) saturate(140%) hue-rotate(-10deg)',
-  cool: 'saturate(90%) hue-rotate(15deg) brightness(105%)',
-  pastel: 'saturate(70%) brightness(110%) contrast(90%)',
+  warm: 'sepia(30%) saturate(160%) hue-rotate(-14deg)',
+  cool: 'saturate(80%) hue-rotate(20deg) brightness(108%)',
+  pastel: 'saturate(60%) brightness(115%) contrast(85%)',
   mono: 'grayscale(100%)',
-  sepia: 'sepia(80%)',
+  sepia: 'sepia(85%)',
 };
 
 export interface PhotoAdjustments {
@@ -92,8 +92,6 @@ export const buildCssFilter = (
     .join(' ');
 };
 
-// SVG color matrix values for FilteredImage component (native preview)
-export const FILTER_MATRICES = {
-  grayscale: '0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 1 0',
-  sepia80: '0.545 0.615 0.151 0 0  0.279 0.549 0.134 0 0  0.218 0.427 0.105 0 0  0 0 0 1 0',
-};
+// FilteredImage.tsx (native preview) derives its SVG color matrix directly by
+// parsing FILTER_CSS above — so the on-screen preview can never silently
+// drift from what actually prints.

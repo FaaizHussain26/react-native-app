@@ -4,6 +4,8 @@ import { AppState, AppStateStatus } from 'react-native';
 type UseIdleActivityOptions = {
   idleModalMs?: number;
   redirectMs?: number;
+  /** When false, idle checking is suspended (e.g. while a print/crop job is in flight). Defaults to true. */
+  enabled?: boolean;
 };
 
 /**
@@ -14,7 +16,7 @@ type UseIdleActivityOptions = {
  */
 const useIdleActivity = (
   callback: () => void,
-  { idleModalMs = 45_000, redirectMs = 20_000 }: UseIdleActivityOptions = {},
+  { idleModalMs = 45_000, redirectMs = 20_000, enabled = true }: UseIdleActivityOptions = {},
 ) => {
   const [showModal, setShowModal] = useState(false);
   const modalShownRef = useRef(false);
@@ -47,6 +49,13 @@ const useIdleActivity = (
   }, [resetIdleTimer]);
 
   useEffect(() => {
+    if (!enabled) {
+      // Suspended (e.g. a print/crop job is in flight) — don't let a stale
+      // countdown pop the modal or fire the callback while we're paused.
+      resetIdleTimer();
+      return;
+    }
+
     const checkIdleTime = () => {
       const idleTime = Date.now() - lastActivityTime.current;
 
@@ -67,7 +76,7 @@ const useIdleActivity = (
         redirectTimeoutRef.current = null;
       }
     };
-  }, [idleModalMs, redirectMs]);
+  }, [idleModalMs, redirectMs, enabled, resetIdleTimer]);
 
   return { showModal, resetIdleTimer };
 };
