@@ -25,7 +25,7 @@ export default function PrintScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { croppedImage, brightness, contrast, saturation, warmth, selectedFilter, resetAll } = useCropStore();
+  const { croppedImage, brightness, contrast, saturation, warmth, selectedFilter, orientation, resetAll } = useCropStore();
 
   const imageUrl =
     croppedImage ||
@@ -83,6 +83,7 @@ export default function PrintScreen() {
               saturation={saturation}
               warmth={warmth}
               width={CARD_W}
+              orientation={orientation}
             />
           </View>
 

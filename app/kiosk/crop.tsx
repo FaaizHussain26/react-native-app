@@ -89,6 +89,21 @@ export default function CropScreen() {
   const startY = useSharedValue(0);
   const startScale = useSharedValue(1);
 
+  // Last time (UI thread) we pinged the idle clock from an in-progress
+  // gesture. onUpdate fires at frame rate, so this throttles the
+  // runOnJS bridge crossing to ~once/second instead of every frame —
+  // without it, a sustained pan/pinch only reset the clock at onBegin,
+  // letting the idle timer expire mid-gesture on long crops.
+  const lastIdleResetAt = useSharedValue(0);
+  const pingIdleTimer = () => {
+    'worklet';
+    const now = Date.now();
+    if (now - lastIdleResetAt.value >= 1000) {
+      lastIdleResetAt.value = now;
+      runOnJS(resetIdleTimer)();
+    }
+  };
+
   const panGesture = Gesture.Pan()
     .onBegin(() => {
       startX.value = translateX.value;
@@ -98,6 +113,7 @@ export default function CropScreen() {
     .onUpdate((e) => {
       translateX.value = startX.value + e.translationX;
       translateY.value = startY.value + e.translationY;
+      pingIdleTimer();
     });
 
   const pinchGesture = Gesture.Pinch()
@@ -107,6 +123,7 @@ export default function CropScreen() {
     })
     .onUpdate((e) => {
       scale.value = clamp(startScale.value * e.scale, 0.5, 4);
+      pingIdleTimer();
     });
 
   const composedGesture = Gesture.Simultaneous(panGesture, pinchGesture);

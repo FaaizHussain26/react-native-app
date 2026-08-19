@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 
 type UseIdleActivityOptions = {
   idleModalMs?: number;
@@ -12,13 +13,14 @@ type UseIdleActivityOptions = {
  * Shows an "idle" modal after inactivity, then fires a callback if the user
  * remains idle for an additional period.
  *
- * Defaults: 90 s until modal, 20 s after modal until callback.
+ * Defaults: 45 s until modal, 20 s after modal until callback.
  */
 const useIdleActivity = (
   callback: () => void,
   { idleModalMs = 45_000, redirectMs = 20_000, enabled = true }: UseIdleActivityOptions = {},
 ) => {
   const [showModal, setShowModal] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
   const modalShownRef = useRef(false);
   const lastActivityTime = useRef(Date.now());
   const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -35,6 +37,18 @@ const useIdleActivity = (
     setShowModal(false);
   }, []);
 
+  // expo-router keeps screens further back in the stack mounted after a
+  // push, so without this every screen a customer has already passed
+  // through keeps ticking its own idle countdown in the background and can
+  // fire its redirect out from under whatever screen is actually focused.
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      resetIdleTimer();
+      return () => setIsFocused(false);
+    }, [resetIdleTimer]),
+  );
+
   // Listen for app foreground to reset idle timer
   useEffect(() => {
     const subscription = AppState.addEventListener(
@@ -49,8 +63,9 @@ const useIdleActivity = (
   }, [resetIdleTimer]);
 
   useEffect(() => {
-    if (!enabled) {
-      // Suspended (e.g. a print/crop job is in flight) — don't let a stale
+    if (!enabled || !isFocused) {
+      // Suspended (e.g. a print/crop job is in flight, or this screen is
+      // blurred behind a later one in the stack) — don't let a stale
       // countdown pop the modal or fire the callback while we're paused.
       resetIdleTimer();
       return;
@@ -76,7 +91,7 @@ const useIdleActivity = (
         redirectTimeoutRef.current = null;
       }
     };
-  }, [idleModalMs, redirectMs, enabled, resetIdleTimer]);
+  }, [idleModalMs, redirectMs, enabled, isFocused, resetIdleTimer]);
 
   return { showModal, resetIdleTimer };
 };

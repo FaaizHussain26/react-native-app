@@ -134,7 +134,13 @@ export default function PaymentScreen() {
 </body>
 </html>`;
 
-      await Print.printAsync({ html, printerUrl: activePrinter.url });
+      await Print.printAsync({
+        html,
+        printerUrl: activePrinter.url,
+        width: pageWidthIn * 72,
+        height: pageHeightIn * 72,
+        orientation: orientation === 'landscape' ? Print.Orientation.landscape : Print.Orientation.portrait,
+      });
 
       // Best-effort status ping — printing already happened on-device either way.
       notifyPrintStatus(sessionId, 'printed').catch(() => {});

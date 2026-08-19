@@ -20,9 +20,20 @@ import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
 import { CARD_FRAME, CARD_W_IN, CARD_H_IN } from '../../constants/postcard';
 
-const { width: SW } = Dimensions.get('window');
-const SHORT_SIDE = Math.min(SW * 0.34, 360);
-const LONG_SIDE = SHORT_SIDE * (CARD_H_IN / CARD_W_IN);
+const { width: SW, height: SH } = Dimensions.get('window');
+
+// Reserve a fixed panel width so the space left for the two cards is a known
+// budget — sizing cards off a single SHORT_SIDE/LONG_SIDE swap let landscape
+// photos render ~300px wider than portrait ones and shove this panel off
+// the right edge of the screen (flexDirection: 'row', no wrap, no h-scroll).
+const PANEL_W = Math.min(SW * 0.26, 380);
+const HORIZONTAL_PADDING = SPACING.xxl * 2; // scroll's paddingHorizontal, both sides
+const ROW_GAP = SPACING.xxl; // gap between cardsRow and panel
+const CARD_GAP = SPACING.lg; // gap between the two cards
+const CHROME_H = 240; // ProgressSteps + PostaFooter + scroll vertical padding estimate
+
+const MAX_CARD_W = (SW - HORIZONTAL_PADDING - PANEL_W - ROW_GAP - CARD_GAP) / 2;
+const MAX_CARD_H = SH - CHROME_H;
 
 export default function ReviewScreen() {
   const router = useRouter();
@@ -34,8 +45,14 @@ export default function ReviewScreen() {
     croppedImage ||
     (sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : '');
 
-  const CARD_W = orientation === 'landscape' ? LONG_SIDE : SHORT_SIDE;
-  const CARD_H = orientation === 'landscape' ? SHORT_SIDE : LONG_SIDE;
+  // Card width is capped by the same horizontal budget regardless of
+  // orientation, so two cards + the panel always fit the screen; height
+  // follows the postcard's real aspect ratio (swapped for landscape) and
+  // shrinks naturally instead of the card ballooning wider.
+  const aspectW_in = orientation === 'landscape' ? CARD_H_IN : CARD_W_IN;
+  const aspectH_in = orientation === 'landscape' ? CARD_W_IN : CARD_H_IN;
+  const CARD_W = Math.max(120, Math.min(MAX_CARD_W, MAX_CARD_H * (aspectW_in / aspectH_in)));
+  const CARD_H = CARD_W * (aspectH_in / aspectW_in);
 
   const { showModal, resetIdleTimer } = useIdleActivity(() => {
     resetAll();
@@ -99,7 +116,7 @@ export default function ReviewScreen() {
             </View>
 
             {/* Action panel */}
-            <View style={styles.panel}>
+            <View style={[styles.panel, { width: PANEL_W }]}>
               <Text style={styles.panelTitle}>Ready to Print?</Text>
 
               <TouchableOpacity
@@ -161,8 +178,6 @@ const styles = StyleSheet.create({
   logoRow: { alignItems: 'center', marginTop: SPACING.sm },
   dbgLogo: { width: 48, height: 48 },
   panel: {
-    flex: 1,
-    maxWidth: 400,
     backgroundColor: COLORS.white,
     borderRadius: RADIUS.xl,
     borderWidth: 1,
