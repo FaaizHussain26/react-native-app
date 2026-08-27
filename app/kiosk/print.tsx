@@ -18,8 +18,14 @@ import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
 import { CARD_FRAME } from '../../constants/postcard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const { width: SW } = Dimensions.get('window');
+const { width: SW, height: SH } = Dimensions.get('window');
 const CARD_W = Math.min(SW * 0.2, 240);
+// Keep the whole stack comfortably within the shorter dimension so the
+// header never gets pushed above the visible top edge on shorter viewports
+// (same fix as payment.tsx's CONTENT_GAP).
+const CONTENT_GAP = Math.min(SPACING.lg, SH * 0.02);
+const ANIM_H = Math.min(180, SH * 0.22);
+const ANIM_W = ANIM_H * (220 / 180);
 
 export default function PrintScreen() {
   const router = useRouter();
@@ -121,7 +127,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: SPACING.xl,
-    gap: SPACING.lg,
+    gap: CONTENT_GAP,
     paddingTop: SPACING.xl,
   },
   titleArea: { alignItems: 'center', gap: SPACING.xs },
@@ -138,8 +144,8 @@ const styles = StyleSheet.create({
     maxWidth: 480,
   },
   printerAnimation: {
-    width: 220,
-    height: 180,
+    width: ANIM_W,
+    height: ANIM_H,
   },
   postcardCard: {
     ...CARD_FRAME,

@@ -38,7 +38,7 @@ export const PostcardPreview = ({
   const imageH = height - borderSide - borderBottom;
 
   // Scale font the same way the rest of the card scales
-  const fontSize     = Math.max(7, shortSide * (24 / (CARD_W_IN * 300)));
+  const fontSize     = Math.min(24, Math.max(7, shortSide * (24 / (CARD_W_IN * 300))));
   const letterSpacing = fontSize * 0.12;
 
   return (

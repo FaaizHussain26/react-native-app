@@ -19,6 +19,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
+import { PostcardBack } from '../../components/PostcardBack';
 import { BubbleOption } from '../../components/BubbleOption';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
@@ -30,9 +31,22 @@ import { CARD_FRAME, CARD_W_IN, CARD_H_IN } from '../../constants/postcard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
-const { width: SW } = Dimensions.get('window');
+const { width: SW, height: SH } = Dimensions.get('window');
 
-const SHORT_SIDE_PX = Math.min(SW * 0.42, 430);
+// ProgressSteps + PostaFooter + scroll vertical padding estimate (same
+// pattern as review.tsx's CHROME_H), so the card + panel can be sized to
+// fit within the screen instead of relying on the ScrollView to compensate.
+const CHROME_H = 200;
+const AVAIL_H = SH - CHROME_H;
+
+const SHORT_SIDE_PX = Math.min(SW * 0.42, 430, AVAIL_H * (CARD_W_IN / CARD_H_IN));
+
+// The panel's natural height at full spacing (title + 3 sections + separator
+// + 2 buttons, measured against the static styles below) — scale its
+// internal spacing down on shorter screens so it always fits alongside the
+// card within AVAIL_H rather than pushing the page into scroll.
+const PANEL_NATURAL_H = 620;
+const PANEL_SCALE = Math.max(0.6, Math.min(1, AVAIL_H / PANEL_NATURAL_H));
 
 const FILTERS = [
   { label: 'Original', value: 'original' },
@@ -224,10 +238,10 @@ console.log("imgUrl:",imageUrl)
 
                 {/* BACK */}
                 <Animated.View style={[styles.postcard, backStyle]}>
-                  <Image
-                    source={require('../../assets/images/back-side-1.png')}
-                    style={[styles.backImage, { width: CARD_W - 16, height: CARD_H - 16 }]}
-                    resizeMode="stretch"
+                  <PostcardBack
+                    width={CARD_W - 16}
+                    height={CARD_H - 16}
+                    orientation={orientation}
                   />
                 </Animated.View>
               </View>
@@ -378,7 +392,7 @@ console.log("imgUrl:",imageUrl)
 const styles = StyleSheet.create({
   container: { flex: 1 },
   background: { flex: 1 },
-  scroll: { flexGrow: 1, padding: 36, alignItems: 'center', justifyContent: 'center' },
+  scroll: { flexGrow: 1, padding: 36 * PANEL_SCALE, alignItems: 'center', justifyContent: 'center' },
   mainRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 36 },
 
   cardWrapper: { position: 'relative' },
@@ -390,8 +404,6 @@ const styles = StyleSheet.create({
 
   logoRow: { alignItems: 'center', marginTop: 8, paddingBottom: 4 },
   dbgLogo: { width: 80, height: 30 },
-
-  backImage: { borderRadius: 6 },
 
   flipButton: {
     position: 'absolute',
@@ -415,7 +427,7 @@ const styles = StyleSheet.create({
     width: 360,
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: 28,
+    padding: 28 * PANEL_SCALE,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.10,
@@ -426,15 +438,15 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: 22,
+    marginBottom: 22 * PANEL_SCALE,
   },
 
-  section: { marginBottom: 22 },
+  section: { marginBottom: 22 * PANEL_SCALE },
   sectionLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 10 * PANEL_SCALE,
   },
   sectionLabel: {
     fontSize: 14,
@@ -446,12 +458,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 10,
+    paddingVertical: 10 * PANEL_SCALE,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.primary,
     backgroundColor: '#FFFFFF',
-    marginBottom: 10,
+    marginBottom: 10 * PANEL_SCALE,
   },
   aiRecommendText: {
     fontSize: 13,
@@ -477,11 +489,11 @@ const styles = StyleSheet.create({
   filterGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 10 * PANEL_SCALE,
   },
   filterBtn: {
     width: '30%',
-    paddingVertical: 13,
+    paddingVertical: 13 * PANEL_SCALE,
     borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
@@ -498,14 +510,14 @@ const styles = StyleSheet.create({
   filterLabelActive: { color: '#FFFFFF' },
   filterLabelInactive: { color: COLORS.muted },
 
-  actionRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
+  actionRow: { flexDirection: 'row', gap: 12, marginTop: 10 * PANEL_SCALE },
   actionBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 13,
+    paddingVertical: 13 * PANEL_SCALE,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -520,15 +532,15 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: COLORS.border,
-    marginVertical: 22,
+    marginVertical: 22 * PANEL_SCALE,
   },
 
   primaryBtn: {
     backgroundColor: COLORS.primary,
     borderRadius: 9999,
-    paddingVertical: 17,
+    paddingVertical: 17 * PANEL_SCALE,
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 10 * PANEL_SCALE,
   },
   primaryBtnText: {
     color: '#FFFFFF',
@@ -538,7 +550,7 @@ const styles = StyleSheet.create({
 
   secondaryBtn: {
     borderRadius: 9999,
-    paddingVertical: 14,
+    paddingVertical: 14 * PANEL_SCALE,
     alignItems: 'center',
     borderWidth: 1.5,
     borderColor: COLORS.border,

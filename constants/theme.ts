@@ -57,14 +57,17 @@ export const SHADOW = {
 
 export type FilterType = 'original' | 'warm' | 'cool' | 'pastel' | 'mono' | 'sepia';
 
-// CSS filter strings for expo-print HTML (exact match to web app)
+// CSS filter strings for expo-print HTML (exact match to web app).
+// Each named preset carries its own contrast/saturation push (not just a
+// hue/tone shift) so results read as an actual edit rather than a subtle
+// color cast — "original" is left untouched as the true unedited baseline.
 export const FILTER_CSS: Record<FilterType, string> = {
   original: '',
-  warm: 'sepia(30%) saturate(160%) hue-rotate(-14deg)',
-  cool: 'saturate(80%) hue-rotate(20deg) brightness(108%)',
-  pastel: 'saturate(60%) brightness(115%) contrast(85%)',
-  mono: 'grayscale(100%)',
-  sepia: 'sepia(85%)',
+  warm: 'contrast(108%) saturate(140%) sepia(25%) hue-rotate(-10deg) brightness(103%)',
+  cool: 'contrast(106%) saturate(115%) hue-rotate(18deg) brightness(105%)',
+  pastel: 'saturate(70%) brightness(112%) contrast(90%) sepia(8%)',
+  mono: 'grayscale(100%) contrast(115%)',
+  sepia: 'sepia(80%) contrast(105%) saturate(105%)',
 };
 
 export interface PhotoAdjustments {

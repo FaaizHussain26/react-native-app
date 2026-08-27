@@ -10,6 +10,7 @@ import {
   Dimensions,
 } from 'react-native';
 import * as Print from 'expo-print';
+import { File } from 'expo-file-system';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
@@ -41,7 +42,7 @@ export default function PaymentScreen() {
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
   const { brightness, contrast, saturation, warmth, selectedFilter, croppedImage, orientation, resetAll } = useCropStore();
-  const { printer, setPrinter, clearPrinter } = usePrinterStore();
+  const { printer, setPrinter } = usePrinterStore();
 
   const [isPrinting, setIsPrinting] = useState(false);
   const [printError, setPrintError] = useState('');
@@ -77,6 +78,15 @@ export default function PaymentScreen() {
         activePrinter = await Print.selectPrinterAsync();
         setPrinter(activePrinter);
       }
+
+      // expo-print renders this HTML in a WKWebView whose file-URL sandbox is
+      // locked to the app bundle, so a local file:// URI (the cropped image,
+      // which lives in Caches) silently fails to load as an <img> subresource
+      // and prints blank. Inline it as a data URI instead; the remote
+      // http(s) fallback loads fine as-is and doesn't need this.
+      const printImageSrc = croppedImage
+        ? `data:image/jpeg;base64,${await new File(croppedImage).base64()}`
+        : imageUrl;
 
       const cssFilter = buildCssFilter(selectedFilter, { brightness, contrast, saturation, warmth });
       const pageWidthIn = orientation === 'landscape' ? CARD_H_IN : CARD_W_IN;
@@ -127,18 +137,23 @@ export default function PaymentScreen() {
 <body>
 <div class="postcard">
   <div class="image-area">
-    <img src="${imageUrl}" alt="Postcard" />
+    <img src="${printImageSrc}" alt="Postcard" />
   </div>
   <div class="caption">${LOCATION} · ${YEAR}</div>
 </div>
 </body>
 </html>`;
 
+      // Pass the base (unswapped) portrait media size here and let `orientation`
+      // do the single rotation — passing already-swapped width/height AND
+      // orientation double-applies the landscape transform, which produces a
+      // page geometry the Epson AirPrint driver can't map to a standard media
+      // size and falls back to its CD/DVD-tray handling instead of printing.
       await Print.printAsync({
         html,
         printerUrl: activePrinter.url,
-        width: pageWidthIn * 72,
-        height: pageHeightIn * 72,
+        width: CARD_W_IN * 72,
+        height: CARD_H_IN * 72,
         orientation: orientation === 'landscape' ? Print.Orientation.landscape : Print.Orientation.portrait,
       });
 
@@ -231,14 +246,6 @@ export default function PaymentScreen() {
             </TouchableOpacity>
           </View>
 
-          {printer && (
-            <TouchableOpacity onPress={clearPrinter} disabled={isPrinting}>
-              <Text style={styles.changePrinterText}>
-                Printer: {printer.name} · Change
-              </Text>
-            </TouchableOpacity>
-          )}
-
           {printError !== '' && (
             <Text style={styles.errorText}>{printError}</Text>
           )}
@@ -327,9 +334,4 @@ const styles = StyleSheet.create({
   },
   backBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 17 },
   errorText: { fontSize: 13, color: COLORS.destructive, textAlign: 'center' },
-  changePrinterText: {
-    fontSize: 12,
-    color: COLORS.muted,
-    textDecorationLine: 'underline',
-  },
 });

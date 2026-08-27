@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -46,6 +46,20 @@ export default function CropScreen() {
   const [isCropping, setIsCropping] = useState(false);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
 
+  // The actual rendered size of the source image under resizeMode="contain"
+  // at scale 1 (image scaled to fit DISPLAY_W x DISPLAY_H, keeping aspect
+  // ratio). Shared by the min-zoom floor below and the crop-pixel math in
+  // handleApplyCrop, so the two can never drift apart.
+  const baseRendered = useMemo(() => {
+    if (imageSize.width === 0 || imageSize.height === 0) return null;
+    const displayAspect = DISPLAY_W / DISPLAY_H;
+    const imageAspect = imageSize.width / imageSize.height;
+    if (imageAspect > displayAspect) {
+      return { width: DISPLAY_W, height: DISPLAY_W / imageAspect };
+    }
+    return { height: DISPLAY_H, width: DISPLAY_H * imageAspect };
+  }, [imageSize]);
+
   // The crop frame mirrors the postcard's actual front-image area for the
   // current orientation, so cropping a landscape photo doesn't force it
   // into the portrait card shape (and vice versa).
@@ -70,6 +84,20 @@ export default function CropScreen() {
       frameTop: (DISPLAY_H - frameH) / 2,
     };
   }, [orientation]);
+
+  // The image must always fully cover the crop frame in both dimensions —
+  // otherwise the frame extends past the (contain-fit) image edges, relX/relY
+  // in handleApplyCrop go negative, and the crop rect silently shifts/shrinks
+  // instead of matching what's visible in the frame. This is most likely to
+  // bite in landscape, where the frame is much wider than in portrait.
+  const minScale = useMemo(() => {
+    if (!baseRendered) return 0.5;
+    return Math.max(
+      CROP_FRAME_W / baseRendered.width,
+      CROP_FRAME_H / baseRendered.height,
+      0.5,
+    );
+  }, [baseRendered, CROP_FRAME_W, CROP_FRAME_H]);
 
   const { showModal, resetIdleTimer } = useIdleActivity(
     () => {
@@ -122,11 +150,24 @@ export default function CropScreen() {
       runOnJS(resetIdleTimer)();
     })
     .onUpdate((e) => {
-      scale.value = clamp(startScale.value * e.scale, 0.5, 4);
+      scale.value = clamp(startScale.value * e.scale, minScale, 4);
       pingIdleTimer();
     });
 
   const composedGesture = Gesture.Simultaneous(panGesture, pinchGesture);
+
+  // Whenever a new image loads or the crop frame's geometry changes
+  // (orientation), make sure the image starts out covering the frame —
+  // otherwise a photo whose aspect ratio doesn't already fill the (wider,
+  // in landscape) frame would start below minScale and require the user to
+  // manually zoom in before any crop position is actually valid.
+  useEffect(() => {
+    if (scale.value < minScale) {
+      scale.value = minScale;
+      translateX.value = 0;
+      translateY.value = 0;
+    }
+  }, [minScale]);
 
   const imageStyle = useAnimatedStyle(() => ({
     transform: [
@@ -155,24 +196,16 @@ export default function CropScreen() {
       const naturalW = imageSize.width;
       const naturalH = imageSize.height;
 
-      // Calculate the actual rendered size under resizeMode="contain":
-      // the image is scaled to fit DISPLAY_W x DISPLAY_H while keeping aspect ratio,
-      // then centered. Ignoring this makes the crop coordinates wrong.
-      const displayAspect = DISPLAY_W / DISPLAY_H;
-      const imageAspect = naturalW / naturalH;
-      let baseRenderedW: number;
-      let baseRenderedH: number;
-      if (imageAspect > displayAspect) {
-        baseRenderedW = DISPLAY_W;
-        baseRenderedH = DISPLAY_W / imageAspect;
-      } else {
-        baseRenderedH = DISPLAY_H;
-        baseRenderedW = DISPLAY_H * imageAspect;
+      // Reuse the same contain-fit calculation the min-zoom floor is based
+      // on, so this can never drift from what's actually on screen.
+      if (!baseRendered) {
+        Alert.alert('Not Ready', 'Image is still loading. Please wait.');
+        return;
       }
 
       // Apply user pinch scale on top of the base rendered size
-      const displayedImgW = baseRenderedW * scale.value;
-      const displayedImgH = baseRenderedH * scale.value;
+      const displayedImgW = baseRendered.width * scale.value;
+      const displayedImgH = baseRendered.height * scale.value;
 
       // Image top-left in display coords (centered, then shifted by pan)
       const imgLeft = DISPLAY_W / 2 - displayedImgW / 2 + translateX.value;
@@ -183,12 +216,17 @@ export default function CropScreen() {
       const relX = frameLeft - imgLeft;
       const relY = frameTop - imgTop;
 
-      // Map from display pixels to natural image pixels
+      // Map from display pixels to natural image pixels, then clamp fully
+      // into [0, naturalW/H] on both ends — not just the lower bound — so a
+      // pan/zoom combination that lets the frame edge fall outside the
+      // image can't silently produce a shifted or out-of-range crop rect.
       const scaleToNatural = naturalW / displayedImgW;
-      const cropX = Math.max(0, Math.round(relX * scaleToNatural));
-      const cropY = Math.max(0, Math.round(relY * scaleToNatural));
-      const cropW = Math.min(Math.round(CROP_FRAME_W * scaleToNatural), naturalW - cropX);
-      const cropH = Math.min(Math.round(CROP_FRAME_H * scaleToNatural), naturalH - cropY);
+      const rawCropW = Math.round(CROP_FRAME_W * scaleToNatural);
+      const rawCropH = Math.round(CROP_FRAME_H * scaleToNatural);
+      const cropX = Math.min(Math.max(0, Math.round(relX * scaleToNatural)), Math.max(0, naturalW - rawCropW));
+      const cropY = Math.min(Math.max(0, Math.round(relY * scaleToNatural)), Math.max(0, naturalH - rawCropH));
+      const cropW = Math.min(rawCropW, naturalW - cropX);
+      const cropH = Math.min(rawCropH, naturalH - cropY);
 
       if (cropW <= 0 || cropH <= 0) {
         Alert.alert('Crop Error', 'Please zoom in or reposition the image inside the frame.');
@@ -212,6 +250,7 @@ export default function CropScreen() {
   }, [
     imageUrl,
     imageSize,
+    baseRendered,
     translateX,
     translateY,
     scale,

@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   ImageBackground,
-  Image,
   ScrollView,
   Dimensions,
 } from 'react-native';
@@ -13,6 +12,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
+import { PostcardBack } from '../../components/PostcardBack';
 import { useCropStore } from '../../stores/cropStore';
 import IdleModal from '../../components/IdleModal';
 import useIdleActivity from '../../hooks/useIdleActivity';
@@ -93,10 +93,10 @@ export default function ReviewScreen() {
                   { width: CARD_W, height: CARD_H },
                 ]}
               >
-                <Image
-                  source={require('../../assets/images/back-side-1.png')}
-                  style={{ width: CARD_W - 16, height: CARD_H - 16, borderRadius: 6 }}
-                  resizeMode="stretch"
+                <PostcardBack
+                  width={CARD_W - 16}
+                  height={CARD_H - 16}
+                  orientation={orientation}
                 />
               </View>
 
