@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ImageBackground,
   Image,
-  ScrollView,
   Dimensions,
 } from 'react-native';
 import Animated, {
@@ -33,19 +32,25 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
-// ProgressSteps + PostaFooter + scroll vertical padding estimate (same
-// pattern as review.tsx's CHROME_H), so the card + panel can be sized to
-// fit within the screen instead of relying on the ScrollView to compensate.
-const CHROME_H = 200;
-const AVAIL_H = SH - CHROME_H;
+// ProgressSteps (~88: paddingVertical 16*2 + border1 + 36 circle + 4 + ~15
+// label line) + PostaFooter (~84: paddingVertical 16*2 + 52 logo), rounded up
+// for font-metric slack — there is no ScrollView here, so this has to be
+// right rather than an approximation the scroll could paper over.
+const CHROME_H = 180;
+// Fixed (not scale-dependent, to avoid a circular AVAIL_H <-> PANEL_SCALE
+// dependency) vertical padding around the card+panel row.
+const CONTENT_PAD_V = 20;
+const AVAIL_H = SH - CHROME_H - CONTENT_PAD_V * 2;
 
-const SHORT_SIDE_PX = Math.min(SW * 0.42, 430, AVAIL_H * (CARD_W_IN / CARD_H_IN));
+// -36 accounts for cardWrapper's own padding (width/height: CARD_W/H + 36).
+const SHORT_SIDE_PX = Math.min(SW * 0.42, 430, (AVAIL_H - 36) * (CARD_W_IN / CARD_H_IN));
 
-// The panel's natural height at full spacing (title + 3 sections + separator
-// + 2 buttons, measured against the static styles below) — scale its
-// internal spacing down on shorter screens so it always fits alongside the
-// card within AVAIL_H rather than pushing the page into scroll.
-const PANEL_NATURAL_H = 620;
+// The panel's natural height at full spacing (padding + title + 3 sections +
+// separator + 2 buttons, measured against the static styles below) — scale
+// its internal spacing down on shorter screens so it always fits alongside
+// the card within AVAIL_H instead of overflowing with no scroll to fall
+// back on.
+const PANEL_NATURAL_H = 650;
 const PANEL_SCALE = Math.max(0.6, Math.min(1, AVAIL_H / PANEL_NATURAL_H));
 
 const FILTERS = [
@@ -215,7 +220,7 @@ console.log("imgUrl:",imageUrl)
       >
         <ProgressSteps currentStep={3} />
 
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <View style={styles.scroll}>
           <View style={styles.mainRow}>
 
             {/* CARD */}
@@ -379,7 +384,7 @@ console.log("imgUrl:",imageUrl)
               </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
+        </View>
 
         <PostaFooter />
       </ImageBackground>
@@ -392,7 +397,13 @@ console.log("imgUrl:",imageUrl)
 const styles = StyleSheet.create({
   container: { flex: 1 },
   background: { flex: 1 },
-  scroll: { flexGrow: 1, padding: 36 * PANEL_SCALE, alignItems: 'center', justifyContent: 'center' },
+  scroll: {
+    flexGrow: 1,
+    paddingHorizontal: 36,
+    paddingVertical: CONTENT_PAD_V,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   mainRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 36 },
 
   cardWrapper: { position: 'relative' },
