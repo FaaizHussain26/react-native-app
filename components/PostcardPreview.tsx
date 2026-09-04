@@ -12,6 +12,13 @@ interface PostcardPreviewProps {
   saturation?: number;
   warmth?: number;
   width: number;
+  // The card's real content box, when the caller has one (i.e. it sized a
+  // frame and subtracted its padding). Deriving height from width alone
+  // scales that padding by the aspect ratio instead of subtracting it, so the
+  // card ends up a few px taller than the frame in landscape and a few px
+  // shorter in portrait — and disagrees with PostcardBack, which is always
+  // given both. Callers without a fixed frame can omit it.
+  height?: number;
   orientation?: 'portrait' | 'landscape';
 }
 
@@ -23,10 +30,11 @@ export const PostcardPreview = ({
   saturation,
   warmth,
   width,
+  height: heightProp,
   orientation = 'portrait',
 }: PostcardPreviewProps) => {
   const aspect = orientation === 'landscape' ? CARD_W_IN / CARD_H_IN : CARD_H_IN / CARD_W_IN;
-  const height = width * aspect;
+  const height = heightProp ?? width * aspect;
 
   // Borders are a fixed real-world size relative to the card's short physical
   // side (CARD_W_IN), regardless of which screen dimension that maps to.

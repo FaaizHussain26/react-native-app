@@ -110,6 +110,7 @@ export default function ReviewScreen() {
                   saturation={saturation}
                   warmth={warmth}
                   width={CARD_W - 16}
+                  height={CARD_H - 16}
                   orientation={orientation}
                 />
               </View>

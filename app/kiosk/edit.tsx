@@ -165,20 +165,18 @@ export default function EditScreen() {
       .finally(() => setIsAnalyzing(false));
   };
 
+  // Only the rotation belongs in an animated style. Width/height must stay in
+  // a plain style so React lays the card out on the same commit as the
+  // children that are sized from CARD_W/CARD_H — when the size lived in here,
+  // Reanimated applied it on the UI thread a frame behind the children, so the
+  // first frame of a flip had a portrait-sized container clipping
+  // landscape-sized contents and sliced the photo and caption off on the right.
   const frontStyle = useAnimatedStyle(() => ({
     transform: [{ rotateY: `${flipProgress.value * 180}deg` }],
-    backfaceVisibility: 'hidden',
-    position: 'absolute',
-    width: CARD_W,
-    height: CARD_H,
   }));
 
   const backStyle = useAnimatedStyle(() => ({
     transform: [{ rotateY: `${flipProgress.value * 180 + 180}deg` }],
-    backfaceVisibility: 'hidden',
-    position: 'absolute',
-    width: CARD_W,
-    height: CARD_H,
   }));
 
   const handleFlip = () => {
@@ -228,7 +226,9 @@ console.log("imgUrl:",imageUrl)
               <View style={{ width: CARD_W, height: CARD_H }}>
 
                 {/* FRONT */}
-                <Animated.View style={[styles.postcard, frontStyle]}>
+                <Animated.View
+                  style={[styles.postcard, styles.cardFace, { width: CARD_W, height: CARD_H }, frontStyle]}
+                >
                   <PostcardPreview
                     uri={imageUrl}
                     filter={safeFilter}
@@ -237,12 +237,15 @@ console.log("imgUrl:",imageUrl)
                     saturation={safeSaturation}
                     warmth={safeWarmth}
                     width={CARD_W - 16}
+                    height={CARD_H - 16}
                     orientation={orientation}
                   />
                 </Animated.View>
 
                 {/* BACK */}
-                <Animated.View style={[styles.postcard, backStyle]}>
+                <Animated.View
+                  style={[styles.postcard, styles.cardFace, { width: CARD_W, height: CARD_H }, backStyle]}
+                >
                   <PostcardBack
                     width={CARD_W - 16}
                     height={CARD_H - 16}
@@ -408,6 +411,8 @@ const styles = StyleSheet.create({
 
   cardWrapper: { position: 'relative' },
   postcard: CARD_FRAME,
+  // Both faces stack on the same spot; only the rotateY differs (see frontStyle).
+  cardFace: { position: 'absolute', backfaceVisibility: 'hidden' },
 
   imageArea: { justifyContent: 'center', alignItems: 'center' },
   imagePlaceholder: { justifyContent: 'center', alignItems: 'center' },

@@ -89,8 +89,18 @@ export default function PaymentScreen() {
         : imageUrl;
 
       const cssFilter = buildCssFilter(selectedFilter, { brightness, contrast, saturation, warmth });
-      const pageWidthIn = orientation === 'landscape' ? CARD_H_IN : CARD_W_IN;
-      const pageHeightIn = orientation === 'landscape' ? CARD_W_IN : CARD_H_IN;
+
+      // The media size never changes: it stays CARD_W_IN x CARD_H_IN, which is
+      // the exact user-defined form the operator registered on the printer.
+      // Asking for a swapped 6 x 4.25 sheet (or setting the print job's
+      // orientation flag) makes the Epson driver hunt for a 6in-wide source it
+      // doesn't have and fall back to its CD/DVD tray template — the printer
+      // then prompts for the CD tray instead of pulling from the rear feed.
+      // So landscape is done entirely inside the page: lay the artwork out at
+      // landscape dimensions and rotate it 90deg within the portrait sheet.
+      const isLandscape = orientation === 'landscape';
+      const contentWIn = isLandscape ? CARD_H_IN : CARD_W_IN;
+      const contentHIn = isLandscape ? CARD_W_IN : CARD_H_IN;
       const html = `
 <!DOCTYPE html>
 <html>
@@ -100,10 +110,21 @@ export default function PaymentScreen() {
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
-    width: 100%; height: 100%;
+    width: ${CARD_W_IN}in; height: ${CARD_H_IN}in;
+    position: relative;
+    overflow: hidden;
     background: white;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+  /* Centred on the sheet, sized to the artwork's own orientation, then
+     rotated into place. A ${CARD_H_IN}x${CARD_W_IN}in box rotated 90deg
+     covers the ${CARD_W_IN}x${CARD_H_IN}in sheet exactly. */
+  .rotator {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: ${contentWIn}in; height: ${contentHIn}in;
+    transform: translate(-50%, -50%) rotate(${isLandscape ? 90 : 0}deg);
   }
   .postcard {
     width: 100%; height: 100%;
@@ -131,30 +152,31 @@ export default function PaymentScreen() {
     letter-spacing: 2pt;
     text-align: center;
   }
-  @page { margin: 0; size: ${pageWidthIn}in ${pageHeightIn}in; }
+  @page { margin: 0; size: ${CARD_W_IN}in ${CARD_H_IN}in; }
 </style>
 </head>
 <body>
-<div class="postcard">
-  <div class="image-area">
-    <img src="${printImageSrc}" alt="Postcard" />
+<div class="rotator">
+  <div class="postcard">
+    <div class="image-area">
+      <img src="${printImageSrc}" alt="Postcard" />
+    </div>
+    <div class="caption">${LOCATION} · ${YEAR}</div>
   </div>
-  <div class="caption">${LOCATION} · ${YEAR}</div>
 </div>
 </body>
 </html>`;
 
-      // Pass the base (unswapped) portrait media size here and let `orientation`
-      // do the single rotation — passing already-swapped width/height AND
-      // orientation double-applies the landscape transform, which produces a
-      // page geometry the Epson AirPrint driver can't map to a standard media
-      // size and falls back to its CD/DVD-tray handling instead of printing.
+      // Always the portrait media size, and deliberately no `orientation` —
+      // the rotation already happened in the HTML above. Every job the printer
+      // sees is a plain 4.25 x 6in page from the rear feed,
+      // whichever way the customer's postcard is turned. See the .rotator note.
       await Print.printAsync({
         html,
         printerUrl: activePrinter.url,
         width: CARD_W_IN * 72,
         height: CARD_H_IN * 72,
-        orientation: orientation === 'landscape' ? Print.Orientation.landscape : Print.Orientation.portrait,
+        orientation: Print.Orientation.portrait,
       });
 
       // Best-effort status ping — printing already happened on-device either way.
