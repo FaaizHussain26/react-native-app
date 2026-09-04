@@ -6,98 +6,131 @@ import {
   StyleSheet,
   Dimensions,
   ImageBackground,
+  Image,
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import {
-  GestureDetector,
-  Gesture,
-} from 'react-native-gesture-handler';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withDecay,
-  clamp,
+  useAnimatedReaction,
   runOnJS,
 } from 'react-native-reanimated';
+import Slider from '@react-native-community/slider';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useCropStore } from '../../stores/cropStore';
+import { useCropStore, NormalizedRect } from '../../stores/cropStore';
+import { API_BASE_URL } from '../../services/api';
 import IdleModal from '../../components/IdleModal';
 import useIdleActivity from '../../hooks/useIdleActivity';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
-import { CARD_W_IN, CARD_H_IN, BORDER_IN, BOTTOM_IN } from '../../constants/postcard';
+import {
+  IMAGE_AREA_IN,
+  imageAreaAspect,
+  MIN_CROP_DPI,
+  PRINT_DPI,
+} from '../../constants/postcard';
+import {
+  Rect,
+  MODE_NONE,
+  MODE_MOVE,
+  CORNER_TL,
+  CORNER_TR,
+  CORNER_BL,
+  CORNER_BR,
+  maxWidthIn,
+  defaultRect,
+  clampToBounds,
+  resizeFromCorner,
+  resizeAboutCenter,
+} from '../../utils/cropGeometry';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
-// The display area behind the crop frame
-const DISPLAY_W = SW * 0.65;
-const DISPLAY_H = SH * 0.75;
+// Vertical chrome around the crop area: the header (~118 — 24 top + 16 bottom
+// padding, a 28px title line, 4, then two 14px subtitle lines), the zoom row
+// (~72 — 16*2 padding and a 40px slider) and the actions row (~100 — 24*2
+// padding and a 52px button). Measured against the static styles below rather
+// than taken as a fraction of the screen: there is no ScrollView here to
+// absorb an overflow if the guess is wrong.
+const CHROME_H = 290;
+const DISPLAY_W = Math.min(SW * 0.7, 900);
+const DISPLAY_H = Math.max(SH - CHROME_H, 260);
+
+// Touch radius for the corner handles. Sized for a finger on a kiosk screen,
+// not for the 20px the handles are drawn at.
+const HANDLE_HIT_PX = 44;
+
+// How closely a saved crop rectangle's aspect has to match the current frame's
+// before we'll restore it. Anything further off means the orientation changed
+// since, so the rectangle is meaningless and we start fresh.
+const ASPECT_EPS = 0.02;
+
+/** Everything the gesture worklets need to know about the current geometry. */
+type Geom = { bounds: Rect; maxW: number; minW: number; aspect: number };
+
+const clampZoom = (z: number, g: Geom) =>
+  Math.min(Math.max(z, 1), Math.max(1, g.maxW / g.minW));
+
+/**
+ * Turn a saved normalized rect back into display coordinates, or null if it
+ * can't be trusted any more.
+ */
+function restoreRect(
+  nr: NormalizedRect | null,
+  g: Geom,
+  natural: { width: number; height: number },
+): Rect | null {
+  if (!nr || natural.width === 0 || natural.height === 0) return null;
+
+  // nr.w and nr.h are fractions of *different* denominators, so they have to
+  // go back to pixels before their ratio means anything.
+  const srcAspect = (nr.w * natural.width) / (nr.h * natural.height);
+  if (!Number.isFinite(srcAspect) || Math.abs(srcAspect - g.aspect) > ASPECT_EPS) {
+    return null;
+  }
+
+  // minW may have moved since (different source, different display size), so
+  // re-clamp rather than trusting the saved width.
+  const w = Math.min(Math.max(nr.w * g.bounds.w, Math.min(g.minW, g.maxW)), g.maxW);
+  const p = clampToBounds(
+    g.bounds.x + nr.x * g.bounds.w,
+    g.bounds.y + nr.y * g.bounds.h,
+    w,
+    g.aspect,
+    g.bounds,
+  );
+  return { x: p.x, y: p.y, w, h: w / g.aspect };
+}
 
 export default function CropScreen() {
   const router = useRouter();
-  const { image: encodedImageUrl = '', session: sessionId = '' } =
-    useLocalSearchParams<{ image: string; session: string }>();
+  const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const imageUrl = decodeURIComponent(encodedImageUrl);
-  const { setCroppedImage, resetAll, orientation } = useCropStore();
+  const {
+    originalImage,
+    cropRect,
+    cropSourceSession,
+    orientation,
+    setOriginalImage,
+    applyCrop,
+    resetAll,
+  } = useCropStore();
+
+  // The crop rectangle's aspect is the postcard's printable image area for the
+  // current orientation — the same constant the preview and the print HTML
+  // derive from, so what's inside the rectangle is exactly what prints.
+  const ASPECT = useMemo(() => imageAreaAspect(orientation), [orientation]);
 
   const [isCropping, setIsCropping] = useState(false);
+  const [sourceUri, setSourceUri] = useState<string | null>(null);
+  const [sourceError, setSourceError] = useState(false);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+  const [zoom, setZoom] = useState(1);
 
-  // The actual rendered size of the source image under resizeMode="contain"
-  // at scale 1 (image scaled to fit DISPLAY_W x DISPLAY_H, keeping aspect
-  // ratio). Shared by the min-zoom floor below and the crop-pixel math in
-  // handleApplyCrop, so the two can never drift apart.
-  const baseRendered = useMemo(() => {
-    if (imageSize.width === 0 || imageSize.height === 0) return null;
-    const displayAspect = DISPLAY_W / DISPLAY_H;
-    const imageAspect = imageSize.width / imageSize.height;
-    if (imageAspect > displayAspect) {
-      return { width: DISPLAY_W, height: DISPLAY_W / imageAspect };
-    }
-    return { height: DISPLAY_H, width: DISPLAY_H * imageAspect };
-  }, [imageSize]);
-
-  // The crop frame mirrors the postcard's actual front-image area for the
-  // current orientation, so cropping a landscape photo doesn't force it
-  // into the portrait card shape (and vice versa).
-  const { CROP_FRAME_W, CROP_FRAME_H, frameLeft, frameTop } = useMemo(() => {
-    const pageWidthIn = orientation === 'landscape' ? CARD_H_IN : CARD_W_IN;
-    const pageHeightIn = orientation === 'landscape' ? CARD_W_IN : CARD_H_IN;
-    const innerWIn = pageWidthIn - 2 * BORDER_IN;
-    const innerHIn = pageHeightIn - BORDER_IN - BOTTOM_IN;
-
-    const shortIn = Math.min(innerWIn, innerHIn);
-    const longIn = Math.max(innerWIn, innerHIn);
-    const shortPx = Math.min(SW * 0.35, 320);
-    const longPx = shortPx * (longIn / shortIn);
-
-    const frameW = innerWIn >= innerHIn ? longPx : shortPx;
-    const frameH = innerWIn >= innerHIn ? shortPx : longPx;
-
-    return {
-      CROP_FRAME_W: frameW,
-      CROP_FRAME_H: frameH,
-      frameLeft: (DISPLAY_W - frameW) / 2,
-      frameTop: (DISPLAY_H - frameH) / 2,
-    };
-  }, [orientation]);
-
-  // The image must always fully cover the crop frame in both dimensions —
-  // otherwise the frame extends past the (contain-fit) image edges, relX/relY
-  // in handleApplyCrop go negative, and the crop rect silently shifts/shrinks
-  // instead of matching what's visible in the frame. This is most likely to
-  // bite in landscape, where the frame is much wider than in portrait.
-  const minScale = useMemo(() => {
-    if (!baseRendered) return 0.5;
-    return Math.max(
-      CROP_FRAME_W / baseRendered.width,
-      CROP_FRAME_H / baseRendered.height,
-      0.5,
-    );
-  }, [baseRendered, CROP_FRAME_W, CROP_FRAME_H]);
+  const remoteUrl = sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : null;
 
   const { showModal, resetIdleTimer } = useIdleActivity(
     () => {
@@ -107,21 +140,146 @@ export default function CropScreen() {
     { enabled: !isCropping },
   );
 
-  // Pan offset of the image within the display area
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const scale = useSharedValue(1);
+  // ── Source photo ────────────────────────────────────────────────────────
+  // Resolved at mount rather than at Apply time, so the pixels on screen and
+  // the pixels we crop are the same bytes, Apply doesn't block on the network,
+  // and a download failure surfaces before the customer has done any work.
+  // Always the *original* — never the previous crop, which is what used to
+  // make re-cropping compound.
+  useEffect(() => {
+    let cancelled = false;
 
-  // Store initial values at gesture start for pan
-  const startX = useSharedValue(0);
-  const startY = useSharedValue(0);
-  const startScale = useSharedValue(1);
+    (async () => {
+      if (originalImage) {
+        // The store no longer persists this URI, but within a session the
+        // cache file can still be evicted underneath us.
+        const info = await FileSystem.getInfoAsync(originalImage);
+        if (cancelled) return;
+        if (info.exists) {
+          setSourceUri(originalImage);
+          return;
+        }
+      }
 
-  // Last time (UI thread) we pinged the idle clock from an in-progress
-  // gesture. onUpdate fires at frame rate, so this throttles the
-  // runOnJS bridge crossing to ~once/second instead of every frame —
-  // without it, a sustained pan/pinch only reset the clock at onBegin,
-  // letting the idle timer expire mid-gesture on long crops.
+      if (!remoteUrl) {
+        setSourceError(true);
+        return;
+      }
+
+      try {
+        // Session-stable filename: the old code wrote a new
+        // crop_source_<timestamp>.jpg on every Apply and never cleaned any of
+        // them up, which grows without bound on a kiosk left running.
+        const dest = `${FileSystem.cacheDirectory}crop_source_${sessionId}.jpg`;
+        const dl = await FileSystem.downloadAsync(remoteUrl, dest);
+        if (cancelled) return;
+        setSourceUri(dl.uri);
+        setOriginalImage(dl.uri);
+      } catch (err) {
+        console.error('Failed to download crop source:', err);
+        if (!cancelled) setSourceError(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [originalImage, remoteUrl, sessionId, setOriginalImage]);
+
+  // Natural pixel dimensions, read up front so the photo can be laid out at
+  // exactly its fitted rect (see `fit` below) instead of relying on
+  // resizeMode="contain" rounding the same way our own math does.
+  useEffect(() => {
+    if (!sourceUri) return;
+    let cancelled = false;
+    Image.getSize(
+      sourceUri,
+      (width, height) => {
+        if (!cancelled) setImageSize({ width, height });
+      },
+      (err) => {
+        console.error('Failed to read crop source size:', err);
+        if (!cancelled) setSourceError(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceUri]);
+
+  // ── Geometry ────────────────────────────────────────────────────────────
+  const fit = useMemo<Geom | null>(() => {
+    if (imageSize.width === 0 || imageSize.height === 0) return null;
+
+    // Contain-fit the photo into the display area; `bounds` is its on-screen
+    // rect and the region the crop rectangle is confined to.
+    const imageAspect = imageSize.width / imageSize.height;
+    const displayAspect = DISPLAY_W / DISPLAY_H;
+    const bw = imageAspect > displayAspect ? DISPLAY_W : DISPLAY_H * imageAspect;
+    const bh = imageAspect > displayAspect ? DISPLAY_W / imageAspect : DISPLAY_H;
+    const bounds: Rect = {
+      x: (DISPLAY_W - bw) / 2,
+      y: (DISPLAY_H - bh) / 2,
+      w: bw,
+      h: bh,
+    };
+
+    const maxW = maxWidthIn(bounds, ASPECT);
+
+    // Tightest crop we allow, in display pixels: whatever MIN_CROP_DPI over
+    // the printed image area works out to in source pixels, converted at the
+    // display scale. Floored at three handle hit-zones across, below which the
+    // corner zones would cover the whole rectangle and leave nowhere to grab
+    // it to move it.
+    const minSrcW = IMAGE_AREA_IN[orientation].w * MIN_CROP_DPI;
+    const pxPerSrc = bounds.w / imageSize.width;
+    const minW = Math.min(Math.max(minSrcW * pxPerSrc, 3 * HANDLE_HIT_PX), maxW);
+
+    return { bounds, maxW, minW, aspect: ASPECT };
+  }, [imageSize, ASPECT, orientation]);
+
+  const zMax = fit ? Math.max(1, fit.maxW / fit.minW) : 1;
+
+  // ── Shared values ───────────────────────────────────────────────────────
+  // The gestures are rebuilt on every render, so their worklets close over
+  // that render's JS values — and bounds/minW/aspect all arrive
+  // asynchronously (image size, orientation). So the worklets read geometry
+  // only from `geom`, never from the `fit` memo directly.
+  const rect = useSharedValue<Rect>({ x: 0, y: 0, w: 0, h: 0 });
+  const geom = useSharedValue<Geom | null>(null);
+  const startRect = useSharedValue<Rect>({ x: 0, y: 0, w: 0, h: 0 });
+  const grab = useSharedValue({ dx: 0, dy: 0 });
+  const mode = useSharedValue(MODE_NONE);
+  const pinchStartW = useSharedValue(0);
+  const pinchCenter = useSharedValue({ x: 0, y: 0 });
+  const zoomReq = useSharedValue(1);
+
+  // JS-thread mirror of `geom`, for the slider, Reset and the apply math.
+  const fitRef = useRef<Geom | null>(null);
+
+  // Seed the rectangle once per (image, orientation) — restoring the
+  // customer's last rectangle when it still applies, otherwise the default.
+  // Deliberately keyed on `fit` alone: re-running when cropRect changes would
+  // stomp the rectangle mid-session right after an Apply.
+  useEffect(() => {
+    if (!fit) return;
+    fitRef.current = fit;
+    geom.value = fit;
+
+    const restored =
+      cropSourceSession === sessionId ? restoreRect(cropRect, fit, imageSize) : null;
+    const r = restored ?? defaultRect(fit.bounds, fit.aspect);
+    rect.value = r;
+
+    const z = clampZoom(fit.maxW / r.w, fit);
+    zoomReq.value = z;
+    setZoom(z);
+  }, [fit]);
+
+  // ── Idle clock ──────────────────────────────────────────────────────────
+  // onUpdate fires at frame rate, so this throttles the runOnJS bridge
+  // crossing to ~once/second. Without it a sustained drag only reset the clock
+  // at the start of the gesture, letting the idle timer expire mid-crop.
   const lastIdleResetAt = useSharedValue(0);
   const pingIdleTimer = () => {
     'worklet';
@@ -132,114 +290,290 @@ export default function CropScreen() {
     }
   };
 
+  // The same throttle on the JS side, for the slider — its onValueChange runs
+  // here, not in a worklet, and a long slider drag would otherwise pop the
+  // idle modal.
+  const lastJsIdlePingRef = useRef(0);
+  const pingIdleTimerJS = useCallback(() => {
+    const now = Date.now();
+    if (now - lastJsIdlePingRef.current >= 1000) {
+      lastJsIdlePingRef.current = now;
+      resetIdleTimer();
+    }
+  }, [resetIdleTimer]);
+
+  // ── Zoom slider binding ─────────────────────────────────────────────────
+  // The rectangle's width is the source of truth. The slider writes a request
+  // into `zoomReq` and a reaction turns it into a rect on the UI thread (no
+  // React render per frame); gestures push the thumb back on release only.
+  const syncZoomFromRect = useCallback((w: number) => {
+    const g = fitRef.current;
+    if (!g || w <= 0) return;
+    const z = clampZoom(g.maxW / w, g);
+    zoomReq.value = z;
+    setZoom(z);
+  }, []);
+
+  useAnimatedReaction(
+    () => zoomReq.value,
+    (z, prev) => {
+      if (prev === null || Math.abs(z - prev) < 1e-4) return;
+      const g = geom.value;
+      if (!g) return;
+      const r = rect.value;
+      rect.value = resizeAboutCenter(
+        r.x + r.w / 2,
+        r.y + r.h / 2,
+        g.maxW / z,
+        g.aspect,
+        g.minW,
+        g.bounds,
+      );
+    },
+  );
+
+  // ── Gestures ────────────────────────────────────────────────────────────
+  // One pan for both moving and resizing, dispatched by hit-testing the touch
+  // against the corners. Five nested detectors would need gesture refs and
+  // priority wiring to do the same job.
+  //
+  // Note this hit-tests in onStart, not onBegin, and works off absolute
+  // e.x/e.y rather than e.translationX/Y: RNGH resets a pan's translation
+  // origin when the handler *activates*, which is after onBegin fires, so
+  // snapshotting in onBegin and adding translations makes the handle trail the
+  // finger by the activation distance. A grab offset sidesteps the question
+  // entirely, and gives the right "grab it where you touched it" feel.
   const panGesture = Gesture.Pan()
-    .onBegin(() => {
-      startX.value = translateX.value;
-      startY.value = translateY.value;
+    .maxPointers(1)
+    .minDistance(0)
+    .onStart((e) => {
+      const g = geom.value;
+      if (!g) {
+        mode.value = MODE_NONE;
+        return;
+      }
+      const r = rect.value;
+      startRect.value = r;
+
+      // The hit radius shrinks with the rectangle so the four corner zones can
+      // never swallow the whole interior and make "move" unreachable at
+      // minimum size.
+      const hit = Math.min(HANDLE_HIT_PX, Math.min(r.w, r.h) / 3);
+      const cx = [r.x, r.x + r.w, r.x, r.x + r.w];
+      const cy = [r.y, r.y, r.y + r.h, r.y + r.h];
+      const ids = [CORNER_TL, CORNER_TR, CORNER_BL, CORNER_BR];
+
+      let best = -1;
+      let bestD = hit * hit;
+      for (let i = 0; i < 4; i++) {
+        const dx = e.x - cx[i];
+        const dy = e.y - cy[i];
+        const d = dx * dx + dy * dy;
+        if (d <= bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+
+      if (best >= 0) {
+        mode.value = ids[best];
+        grab.value = { dx: cx[best] - e.x, dy: cy[best] - e.y };
+      } else {
+        // Anywhere else moves the rectangle. Because this is a grab offset
+        // rather than an absolute jump, starting outside the rectangle is
+        // harmless — it just moves from where it is.
+        mode.value = MODE_MOVE;
+        grab.value = { dx: r.x - e.x, dy: r.y - e.y };
+      }
       runOnJS(resetIdleTimer)();
     })
     .onUpdate((e) => {
-      translateX.value = startX.value + e.translationX;
-      translateY.value = startY.value + e.translationY;
+      const g = geom.value;
+      if (!g || mode.value === MODE_NONE) return;
+
+      const fx = e.x + grab.value.dx;
+      const fy = e.y + grab.value.dy;
+
+      if (mode.value === MODE_MOVE) {
+        const s = startRect.value;
+        const p = clampToBounds(fx, fy, s.w, g.aspect, g.bounds);
+        rect.value = { x: p.x, y: p.y, w: s.w, h: s.w / g.aspect };
+      } else {
+        rect.value = resizeFromCorner(
+          mode.value,
+          startRect.value,
+          fx,
+          fy,
+          g.aspect,
+          g.minW,
+          g.bounds,
+        );
+      }
       pingIdleTimer();
+    })
+    .onFinalize(() => {
+      mode.value = MODE_NONE;
+      runOnJS(syncZoomFromRect)(rect.value.w);
     });
 
   const pinchGesture = Gesture.Pinch()
-    .onBegin(() => {
-      startScale.value = scale.value;
+    .onStart(() => {
+      const r = rect.value;
+      pinchStartW.value = r.w;
+      pinchCenter.value = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      // maxPointers(1) makes RNGH cancel the pan when the second finger lands,
+      // but the order of pan-cancel vs pinch-activate isn't contractual, so
+      // neutralise the pan explicitly.
+      mode.value = MODE_NONE;
       runOnJS(resetIdleTimer)();
     })
     .onUpdate((e) => {
-      scale.value = clamp(startScale.value * e.scale, minScale, 4);
+      const g = geom.value;
+      if (!g) return;
+      const c = pinchCenter.value;
+      // Spreading the fingers means "zoom in", which is a *tighter* crop and
+      // therefore a smaller rectangle — hence dividing, where the old
+      // image-scaling code multiplied.
+      rect.value = resizeAboutCenter(
+        c.x,
+        c.y,
+        pinchStartW.value / e.scale,
+        g.aspect,
+        g.minW,
+        g.bounds,
+      );
       pingIdleTimer();
+    })
+    .onFinalize(() => {
+      runOnJS(syncZoomFromRect)(rect.value.w);
     });
 
   const composedGesture = Gesture.Simultaneous(panGesture, pinchGesture);
 
-  // Whenever a new image loads or the crop frame's geometry changes
-  // (orientation), make sure the image starts out covering the frame —
-  // otherwise a photo whose aspect ratio doesn't already fill the (wider,
-  // in landscape) frame would start below minScale and require the user to
-  // manually zoom in before any crop position is actually valid.
-  useEffect(() => {
-    if (scale.value < minScale) {
-      scale.value = minScale;
-      translateX.value = 0;
-      translateY.value = 0;
-    }
-  }, [minScale]);
-
-  const imageStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { scale: scale.value },
-    ],
+  // ── Animated overlay ────────────────────────────────────────────────────
+  // Four dim quadrants plus the frame. The corner handles stay static children
+  // of the frame, so they ride along without being animated themselves.
+  // Every dimension is guarded at 0: float drift at the bounds can land on
+  // -0.0001, and a negative width is a hard native error on Android.
+  const overlayTopStyle = useAnimatedStyle(() => ({
+    height: Math.max(0, rect.value.y),
+  }));
+  const overlayBottomStyle = useAnimatedStyle(() => ({
+    height: Math.max(0, DISPLAY_H - rect.value.y - rect.value.h),
+  }));
+  const overlayLeftStyle = useAnimatedStyle(() => ({
+    top: rect.value.y,
+    height: Math.max(0, rect.value.h),
+    width: Math.max(0, rect.value.x),
+  }));
+  const overlayRightStyle = useAnimatedStyle(() => ({
+    top: rect.value.y,
+    height: Math.max(0, rect.value.h),
+    width: Math.max(0, DISPLAY_W - rect.value.x - rect.value.w),
+  }));
+  const frameStyle = useAnimatedStyle(() => ({
+    left: rect.value.x,
+    top: rect.value.y,
+    width: Math.max(0, rect.value.w),
+    height: Math.max(0, rect.value.h),
   }));
 
+  // ── Actions ─────────────────────────────────────────────────────────────
+  const handleReset = () => {
+    const g = fitRef.current;
+    if (!g) return;
+    rect.value = defaultRect(g.bounds, g.aspect);
+    zoomReq.value = 1;
+    setZoom(1);
+    resetIdleTimer();
+  };
+
   const handleApplyCrop = useCallback(async () => {
-    if (imageSize.width === 0 || imageSize.height === 0) {
+    const g = fitRef.current;
+    if (!g || !sourceUri || imageSize.width === 0 || imageSize.height === 0) {
       Alert.alert('Not Ready', 'Image is still loading. Please wait.');
       return;
     }
+
     setIsCropping(true);
     try {
-      let localUri = imageUrl;
+      const r = rect.value;
 
-      if (imageUrl.startsWith('http')) {
-        const filename = `crop_source_${Date.now()}.jpg`;
-        const destPath = FileSystem.cacheDirectory + filename;
-        const download = await FileSystem.downloadAsync(imageUrl, destPath);
-        localUri = download.uri;
-      }
+      // Map the rectangle from display pixels into source pixels. The photo is
+      // laid out at exactly `bounds`, so this is a single exact scale factor.
+      const k = imageSize.width / g.bounds.w;
+      const sx = (r.x - g.bounds.x) * k;
+      const sy = (r.y - g.bounds.y) * k;
 
-      const naturalW = imageSize.width;
-      const naturalH = imageSize.height;
-
-      // Reuse the same contain-fit calculation the min-zoom floor is based
-      // on, so this can never drift from what's actually on screen.
-      if (!baseRendered) {
-        Alert.alert('Not Ready', 'Image is still loading. Please wait.');
-        return;
-      }
-
-      // Apply user pinch scale on top of the base rendered size
-      const displayedImgW = baseRendered.width * scale.value;
-      const displayedImgH = baseRendered.height * scale.value;
-
-      // Image top-left in display coords (centered, then shifted by pan)
-      const imgLeft = DISPLAY_W / 2 - displayedImgW / 2 + translateX.value;
-      const imgTop = DISPLAY_H / 2 - displayedImgH / 2 + translateY.value;
-
-      // Where the frame sits inside the displayed image
-      // (frameLeft/frameTop come from the orientation-aware geometry above)
-      const relX = frameLeft - imgLeft;
-      const relY = frameTop - imgTop;
-
-      // Map from display pixels to natural image pixels, then clamp fully
-      // into [0, naturalW/H] on both ends — not just the lower bound — so a
-      // pan/zoom combination that lets the frame edge fall outside the
-      // image can't silently produce a shifted or out-of-range crop rect.
-      const scaleToNatural = naturalW / displayedImgW;
-      const rawCropW = Math.round(CROP_FRAME_W * scaleToNatural);
-      const rawCropH = Math.round(CROP_FRAME_H * scaleToNatural);
-      const cropX = Math.min(Math.max(0, Math.round(relX * scaleToNatural)), Math.max(0, naturalW - rawCropW));
-      const cropY = Math.min(Math.max(0, Math.round(relY * scaleToNatural)), Math.max(0, naturalH - rawCropH));
-      const cropW = Math.min(rawCropW, naturalW - cropX);
-      const cropH = Math.min(rawCropH, naturalH - cropY);
-
-      if (cropW <= 0 || cropH <= 0) {
-        Alert.alert('Crop Error', 'Please zoom in or reposition the image inside the frame.');
-        return;
-      }
-
-      const result = await ImageManipulator.manipulateAsync(
-        localUri,
-        [{ crop: { originX: cropX, originY: cropY, width: cropW, height: cropH } }],
-        { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG },
+      // Width is the only free variable — height is always derived from it, so
+      // the output ratio can't drift the way it could when the two axes were
+      // clamped independently.
+      let w = Math.min(
+        r.w * k,
+        imageSize.width - Math.max(0, sx),
+        (imageSize.height - Math.max(0, sy)) * ASPECT,
+        imageSize.width,
+        imageSize.height * ASPECT,
       );
+      let h = w / ASPECT;
 
-      setCroppedImage(result.uri);
+      const ox = Math.min(Math.max(0, sx), imageSize.width - w);
+      const oy = Math.min(Math.max(0, sy), imageSize.height - h);
+
+      // Integerise: floor the origin (only ever creates room), round the
+      // width, derive the height, then shrink-only guards for the half pixel
+      // rounding can add.
+      const originX = Math.max(0, Math.floor(ox));
+      const originY = Math.max(0, Math.floor(oy));
+      let outW = Math.max(1, Math.round(w));
+      let outH = Math.max(1, Math.round(outW / ASPECT));
+      if (originX + outW > imageSize.width) {
+        outW = imageSize.width - originX;
+        outH = Math.round(outW / ASPECT);
+      }
+      if (originY + outH > imageSize.height) {
+        outH = imageSize.height - originY;
+        outW = Math.round(outH * ASPECT);
+      }
+
+      if (outW <= 0 || outH <= 0) {
+        Alert.alert('Crop Error', 'Could not crop that area. Please try again.');
+        return;
+      }
+
+      const actions: ImageManipulator.Action[] = [
+        { crop: { originX, originY, width: outW, height: outH } },
+      ];
+
+      // Cap the output at print resolution. Only `width` is passed —
+      // ImageManipulator derives the other dimension to preserve the ratio, so
+      // the resize can't break the aspect lock. Without this a 12MP crop ends
+      // up base64-inlined into the print HTML at several megabytes.
+      const maxOutW = Math.ceil(IMAGE_AREA_IN[orientation].w * PRINT_DPI);
+      if (outW > maxOutW) actions.push({ resize: { width: maxOutW } });
+
+      const result = await ImageManipulator.manipulateAsync(sourceUri, actions, {
+        compress: 0.92,
+        format: ImageManipulator.SaveFormat.JPEG,
+      });
+
+      if (Math.abs(result.width / result.height - ASPECT) > ASPECT_EPS) {
+        console.warn('Crop aspect drift', result.width, result.height, ASPECT);
+      }
+
+      applyCrop({
+        croppedImage: result.uri,
+        originalImage: sourceUri,
+        // Saved from the final integer values, so reopening the crop screen
+        // restores exactly this rectangle.
+        cropRect: {
+          x: originX / imageSize.width,
+          y: originY / imageSize.height,
+          w: outW / imageSize.width,
+          h: outH / imageSize.height,
+        },
+        session: sessionId,
+      });
       router.back();
     } catch (err) {
       console.error('Crop failed:', err);
@@ -247,24 +581,13 @@ export default function CropScreen() {
     } finally {
       setIsCropping(false);
     }
-  }, [
-    imageUrl,
-    imageSize,
-    baseRendered,
-    translateX,
-    translateY,
-    scale,
-    CROP_FRAME_W,
-    CROP_FRAME_H,
-    frameLeft,
-    frameTop,
-    setCroppedImage,
-    router,
-  ]);
+  }, [sourceUri, imageSize, ASPECT, orientation, applyCrop, sessionId, router]);
 
   const handleCancel = () => {
     router.back();
   };
+
+  const isReady = !!fit && !!sourceUri;
 
   return (
     <View
@@ -283,7 +606,7 @@ export default function CropScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>Crop Your Photo</Text>
           <Text style={styles.subtitle}>
-            Pan and pinch to position your photo within the crop frame, then tap
+            Drag the frame to move it, or drag a corner to resize. Then tap
             Apply.
           </Text>
         </View>
@@ -292,59 +615,93 @@ export default function CropScreen() {
         <View style={styles.cropContainer}>
           <GestureDetector gesture={composedGesture}>
             <View style={styles.displayArea}>
-              {/* Background image (pannable/zoomable) */}
-              <Animated.Image
-                source={{ uri: imageUrl }}
-                style={[styles.sourceImage, imageStyle]}
-                resizeMode="contain"
-                onLoad={(e) =>
-                  setImageSize({
-                    width: e.nativeEvent.source.width,
-                    height: e.nativeEvent.source.height,
-                  })
-                }
-              />
+              {sourceError ? (
+                <Text style={styles.statusText}>
+                  Could not load your photo. Please go back and try again.
+                </Text>
+              ) : !isReady ? (
+                <ActivityIndicator color={COLORS.white} size="large" />
+              ) : (
+                <>
+                  {/* The photo is laid out at exactly its fitted rect, so
+                      `bounds` *is* the on-screen photo rect by construction
+                      rather than by agreeing with contain-fit rounding. */}
+                  <Image
+                    source={{ uri: sourceUri! }}
+                    style={{
+                      position: 'absolute',
+                      left: fit!.bounds.x,
+                      top: fit!.bounds.y,
+                      width: fit!.bounds.w,
+                      height: fit!.bounds.h,
+                    }}
+                    resizeMode="cover"
+                  />
 
-              {/* Dark overlay outside crop frame */}
-              <View style={[styles.overlayTop, { height: frameTop }]} />
-              <View
-                style={[
-                  styles.overlayBottom,
-                  { height: DISPLAY_H - frameTop - CROP_FRAME_H },
-                ]}
-              />
-              <View
-                style={[
-                  styles.overlayLeft,
-                  { top: frameTop, width: frameLeft, height: CROP_FRAME_H },
-                ]}
-              />
-              <View
-                style={[
-                  styles.overlayRight,
-                  {
-                    top: frameTop,
-                    width: DISPLAY_W - frameLeft - CROP_FRAME_W,
-                    height: CROP_FRAME_H,
-                  },
-                ]}
-              />
+                  {/* Dim everything outside the crop rectangle */}
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.overlayTop, overlayTopStyle]}
+                  />
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.overlayBottom, overlayBottomStyle]}
+                  />
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.overlayLeft, overlayLeftStyle]}
+                  />
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.overlayRight, overlayRightStyle]}
+                  />
 
-              {/* Crop frame border */}
-              <View
-                style={[
-                  styles.cropFrame,
-                  { top: frameTop, left: frameLeft, width: CROP_FRAME_W, height: CROP_FRAME_H },
-                ]}
-              >
-                {/* Corner handles */}
-                <View style={[styles.corner, styles.cornerTL]} />
-                <View style={[styles.corner, styles.cornerTR]} />
-                <View style={[styles.corner, styles.cornerBL]} />
-                <View style={[styles.corner, styles.cornerBR]} />
-              </View>
+                  {/* Crop frame + corner handles */}
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.cropFrame, frameStyle]}
+                  >
+                    <View style={[styles.corner, styles.cornerTL]} />
+                    <View style={[styles.corner, styles.cornerTR]} />
+                    <View style={[styles.corner, styles.cornerBL]} />
+                    <View style={[styles.corner, styles.cornerBR]} />
+                  </Animated.View>
+                </>
+              )}
             </View>
           </GestureDetector>
+        </View>
+
+        {/* Zoom + reset */}
+        <View style={styles.zoomRow}>
+          <Text style={styles.zoomLabel}>Zoom</Text>
+          <Slider
+            style={styles.zoomSlider}
+            minimumValue={1}
+            maximumValue={zMax}
+            value={zoom}
+            // A source too low-res for MIN_CROP_DPI has no room to zoom at all.
+            disabled={!isReady || zMax <= 1.001}
+            tapToSeek
+            minimumTrackTintColor={COLORS.primary}
+            maximumTrackTintColor={COLORS.border}
+            thumbTintColor={COLORS.primary}
+            onValueChange={(z) => {
+              zoomReq.value = z;
+              pingIdleTimerJS();
+            }}
+            onSlidingComplete={(z) => {
+              setZoom(z);
+              resetIdleTimer();
+            }}
+          />
+          <TouchableOpacity
+            style={styles.resetBtn}
+            onPress={handleReset}
+            disabled={!isReady}
+          >
+            <Text style={styles.resetText}>Reset</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Action buttons */}
@@ -354,9 +711,12 @@ export default function CropScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.applyBtn, isCropping && styles.applyBtnDisabled]}
+            style={[
+              styles.applyBtn,
+              (isCropping || !isReady) && styles.applyBtnDisabled,
+            ]}
             onPress={handleApplyCrop}
-            disabled={isCropping}
+            disabled={isCropping || !isReady}
           >
             {isCropping ? (
               <ActivityIndicator color={COLORS.white} />
@@ -404,14 +764,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#000',
     position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  sourceImage: {
-    width: DISPLAY_W,
-    height: DISPLAY_H,
-    position: 'absolute',
+  statusText: {
+    color: COLORS.white,
+    fontSize: 15,
+    textAlign: 'center',
+    paddingHorizontal: SPACING.xl,
   },
-  // Overlay quadrants — geometry (top/left/width/height) is orientation-
-  // dependent and applied as inline style overrides at render time.
+  // Overlay quadrants — geometry follows the crop rectangle, so it's applied
+  // by useAnimatedStyle rather than being static here.
   overlayTop: {
     position: 'absolute',
     top: 0,
@@ -452,6 +815,37 @@ const styles = StyleSheet.create({
   cornerTR: { top: -2, right: -2, borderLeftWidth: 0, borderBottomWidth: 0 },
   cornerBL: { bottom: -2, left: -2, borderRightWidth: 0, borderTopWidth: 0 },
   cornerBR: { bottom: -2, right: -2, borderLeftWidth: 0, borderTopWidth: 0 },
+  zoomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+  },
+  zoomLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  zoomSlider: {
+    width: Math.min(SW * 0.4, 420),
+    height: 40,
+  },
+  resetBtn: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.white,
+    ...SHADOW.sm,
+  },
+  resetText: {
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+    fontSize: 14,
+  },
   actions: {
     flexDirection: 'row',
     justifyContent: 'center',

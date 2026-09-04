@@ -74,6 +74,8 @@ export default function EditScreen() {
 
   const {
     croppedImage,
+    originalImage,
+    setOriginalImage,
     brightness,
     contrast,
     saturation,
@@ -116,13 +118,24 @@ export default function EditScreen() {
   // Local cached URI — SvgImage on Android doesn't reliably load remote HTTPS URLs
   const [cachedImageUri, setCachedImageUri] = useState<string | null>(null);
 
+  // Deliberately not short-circuited on croppedImage: the uncropped original
+  // has to stay available underneath the crop, both as the card's fallback and
+  // as the source the crop screen re-crops from. Guarding on croppedImage left
+  // this null forever after the first crop and re-downloaded on every one.
   useEffect(() => {
-    if (croppedImage || !remoteImageUrl) return;
+    if (originalImage) {
+      setCachedImageUri(originalImage); // already downloaded, by us or by the crop screen
+      return;
+    }
+    if (!remoteImageUrl) return;
     const dest = `${FileSystem.cacheDirectory}session_image_${sessionId}.jpg`;
     FileSystem.downloadAsync(remoteImageUrl, dest)
-      .then((res) => setCachedImageUri(res.uri))
+      .then((res) => {
+        setCachedImageUri(res.uri);
+        setOriginalImage(res.uri);
+      })
       .catch(() => setCachedImageUri(remoteImageUrl)); // fall back to remote on error
-  }, [remoteImageUrl, croppedImage, sessionId]);
+  }, [remoteImageUrl, originalImage, sessionId, setOriginalImage]);
 
   const imageUrl = croppedImage ?? cachedImageUri;
 
@@ -185,11 +198,12 @@ export default function EditScreen() {
     flipProgress.value = withTiming(next, { duration: 600 });
   };
 
+  // Only the session id is passed. The crop screen resolves its own source
+  // from originalImage (or re-downloads it), which is what stops a previous
+  // crop from being fed back in and compounding.
   const handleCrop = () => {
-    const cropSource = croppedImage ?? remoteImageUrl;
-    if (!cropSource) return;
-    const encodedUrl = encodeURIComponent(cropSource);
-    router.push(`/kiosk/crop?image=${encodedUrl}&session=${sessionId}`);
+    if (!sessionId && !originalImage) return;
+    router.push(`/kiosk/crop?session=${sessionId}`);
   };
 
   const handleNext = () => {

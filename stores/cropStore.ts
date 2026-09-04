@@ -5,8 +5,24 @@ import { FilterType } from '../constants/theme';
 
 export type Orientation = 'portrait' | 'landscape';
 
+/**
+ * A crop rectangle in 0..1 fractions of the *original* image's own pixel
+ * dimensions — not display pixels. Normalized so it survives a different
+ * screen size, a different source resolution, and a store rehydrate.
+ */
+export type NormalizedRect = { x: number; y: number; w: number; h: number };
+
 interface CropState {
   croppedImage: string | null;
+  /**
+   * Local cache copy of the UN-cropped source photo. Cropping always reads
+   * from this, never from croppedImage, so re-cropping can't compound.
+   */
+  originalImage: string | null;
+  /** The rectangle croppedImage was cut from, so the crop screen reopens where the customer left it. */
+  cropRect: NormalizedRect | null;
+  /** Which session cropRect belongs to — a persisted rect must not be applied to a new customer's photo. */
+  cropSourceSession: string | null;
   brightness: number;
   contrast: number;
   saturation: number;
@@ -22,6 +38,14 @@ interface CropState {
 
 interface CropActions {
   setCroppedImage: (img: string | null) => void;
+  setOriginalImage: (uri: string | null) => void;
+  /** Commits a finished crop in one write, so no render sees croppedImage and cropRect disagree. */
+  applyCrop: (payload: {
+    croppedImage: string;
+    originalImage: string;
+    cropRect: NormalizedRect;
+    session: string;
+  }) => void;
   setBrightness: (value: number) => void;
   setContrast: (value: number) => void;
   setSaturation: (value: number) => void;
@@ -30,7 +54,6 @@ interface CropActions {
   setOrientation: (orientation: Orientation) => void;
   setAutoDetectedOrientation: (orientation: Orientation) => void;
   setComingSoonFilter: (filter: string | null) => void;
-  clearCroppedImage: () => void;
   resetFilters: () => void;
   resetAll: () => void;
 }
@@ -39,6 +62,9 @@ type CropStore = CropState & CropActions;
 
 const initialState: CropState = {
   croppedImage: null,
+  originalImage: null,
+  cropRect: null,
+  cropSourceSession: null,
   brightness: 100,
   contrast: 100,
   saturation: 100,
@@ -55,6 +81,11 @@ export const useCropStore = create<CropStore>()(
       ...initialState,
 
       setCroppedImage: (img) => set({ croppedImage: img }),
+
+      setOriginalImage: (uri) => set({ originalImage: uri }),
+
+      applyCrop: ({ croppedImage, originalImage, cropRect, session }) =>
+        set({ croppedImage, originalImage, cropRect, cropSourceSession: session }),
 
       setBrightness: (value) => set({ brightness: value }),
 
@@ -75,8 +106,6 @@ export const useCropStore = create<CropStore>()(
 
       setComingSoonFilter: (filter) => set({ comingSoonFilter: filter }),
 
-      clearCroppedImage: () => set({ croppedImage: null }),
-
       resetFilters: () =>
         set({
           brightness: initialState.brightness,
@@ -85,7 +114,13 @@ export const useCropStore = create<CropStore>()(
           warmth: initialState.warmth,
           selectedFilter: initialState.selectedFilter,
           comingSoonFilter: initialState.comingSoonFilter,
+          // cropRect has to go with croppedImage — otherwise the store claims
+          // a crop rectangle for a photo that is no longer cropped, and the
+          // crop screen would restore it. originalImage stays: it's a cached
+          // download, and dropping it would only force a re-fetch.
           croppedImage: null,
+          cropRect: null,
+          cropSourceSession: null,
         }),
 
       resetAll: () => set(initialState),
@@ -93,6 +128,12 @@ export const useCropStore = create<CropStore>()(
     {
       name: 'crop-storage',
       storage: createJSONStorage(() => AsyncStorage),
+      // Don't persist file URIs. Both point into cacheDirectory, which the OS
+      // may evict between launches — a rehydrated-but-evicted croppedImage
+      // makes the print path's base64 read throw. cropRect and
+      // cropSourceSession are pure data and are enough to restore the
+      // customer's rectangle after a fresh download.
+      partialize: ({ croppedImage, originalImage, ...rest }) => rest,
     },
   ),
 );
