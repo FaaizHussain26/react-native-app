@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,8 @@ import {
   StyleSheet,
   ImageBackground,
   Image,
-  Dimensions,
+  LayoutChangeEvent,
+  useWindowDimensions,
 } from 'react-native';
 import LottieView from 'lottie-react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -15,20 +16,24 @@ import { PostcardPreview } from '../../components/PostcardPreview';
 import { useCropStore } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { COLORS, SPACING, RADIUS, SHADOW } from '../../constants/theme';
-import { CARD_FRAME } from '../../constants/postcard';
+import { CARD_FRAME, CARD_W_IN, CARD_H_IN } from '../../constants/postcard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const { width: SW, height: SH } = Dimensions.get('window');
-const CARD_W = Math.min(SW * 0.2, 240);
-// Keep the whole stack comfortably within the shorter dimension so the
-// header never gets pushed above the visible top edge on shorter viewports
-// (same fix as payment.tsx's CONTENT_GAP).
-const CONTENT_GAP = Math.min(SPACING.lg, SH * 0.02);
-const ANIM_H = Math.min(180, SH * 0.22);
-const ANIM_W = ANIM_H * (220 / 180);
+// Widest the postcard is ever drawn, however much vertical room is going
+// spare — beyond this it just looks oversized next to the rest of the stack.
+const CARD_MAX_W = 240;
+// CARD_FRAME's padding, on both sides — the postcard itself gets the slot
+// minus this.
+const CARD_FRAME_INSET = CARD_FRAME.padding * 2;
 
 export default function PrintScreen() {
   const router = useRouter();
+  const { height: SH } = useWindowDimensions();
+
+  const CONTENT_GAP = Math.min(SPACING.lg, SH * 0.02);
+  const ANIM_H = Math.min(150, SH * 0.18);
+  const ANIM_W = ANIM_H * (220 / 180);
+
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
   const { croppedImage, brightness, contrast, saturation, warmth, selectedFilter, orientation, resetAll } = useCropStore();
@@ -38,6 +43,39 @@ export default function PrintScreen() {
     (sessionId ? `${API_BASE_URL}/session/${sessionId}/image` : null);
 
   const [countdown, setCountdown] = useState(10);
+
+  // The postcard used to be sized from screen *width* alone (SW * 0.2), which
+  // ignored the vertical budget entirely: on a landscape iPad the stack came
+  // to ~920pt inside ~750pt of content area, and because the column is
+  // centred, RN pushed half that overflow off each end — slicing the title at
+  // the top and taking the button and countdown off the bottom. It now gets
+  // whatever height is left over after the fixed rows, measured rather than
+  // predicted, so the stack always fits whatever the viewport turns out to be.
+  const [cardSlot, setCardSlot] = useState({ width: 0, height: 0 });
+  const onCardSlotLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setCardSlot((prev) =>
+      prev.width === width && prev.height === height ? prev : { width, height },
+    );
+  };
+
+  const card = useMemo(() => {
+    const maxW = Math.min(cardSlot.width - CARD_FRAME_INSET, CARD_MAX_W);
+    const maxH = cardSlot.height - CARD_FRAME_INSET;
+    if (maxW <= 0 || maxH <= 0) return null;
+
+    // Card width per unit of card height, for the orientation in play.
+    const ratio =
+      orientation === 'landscape' ? CARD_H_IN / CARD_W_IN : CARD_W_IN / CARD_H_IN;
+
+    let height = maxH;
+    let width = height * ratio;
+    if (width > maxW) {
+      width = maxW;
+      height = width / ratio;
+    }
+    return { width, height };
+  }, [cardSlot, orientation]);
 
   const handleNewOrder = async () => {
     resetAll();
@@ -61,7 +99,7 @@ export default function PrintScreen() {
         style={styles.background}
         resizeMode="cover"
       >
-        <View style={styles.content}>
+        <View style={[styles.content, { gap: CONTENT_GAP }]}>
           {/* Title */}
           <View style={styles.titleArea}>
             <Text style={styles.title}>Your postcard is printing!</Text>
@@ -76,21 +114,26 @@ export default function PrintScreen() {
             source={require('../../assets/printer-lottie.json')}
             autoPlay
             loop
-            style={styles.printerAnimation}
+            style={{ width: ANIM_W, height: ANIM_H }}
           />
 
-          {/* Postcard preview */}
-          <View style={styles.postcardCard}>
-            <PostcardPreview
-              uri={imageUrl}
-              filter={selectedFilter}
-              brightness={brightness}
-              contrast={contrast}
-              saturation={saturation}
-              warmth={warmth}
-              width={CARD_W}
-              orientation={orientation}
-            />
+          {/* Postcard preview — takes the height the fixed rows leave over. */}
+          <View style={styles.cardSlot} onLayout={onCardSlotLayout}>
+            {card && (
+              <View style={styles.postcardCard}>
+                <PostcardPreview
+                  uri={imageUrl}
+                  filter={selectedFilter}
+                  brightness={brightness}
+                  contrast={contrast}
+                  saturation={saturation}
+                  warmth={warmth}
+                  width={card.width}
+                  height={card.height}
+                  orientation={orientation}
+                />
+              </View>
+            )}
           </View>
 
           {/* Thank you */}
@@ -125,14 +168,25 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    // Laid out from the top, not centred: the card slot below absorbs any
+    // slack, so there is nothing left to centre — and if a very short
+    // viewport ever did overflow, centring would hide the title off the top
+    // edge instead of letting it run off the bottom.
+    justifyContent: 'flex-start',
     paddingHorizontal: SPACING.xl,
-    gap: CONTENT_GAP,
     paddingTop: SPACING.xl,
   },
   titleArea: { alignItems: 'center', gap: SPACING.xs },
+  cardSlot: {
+    flex: 1,
+    minHeight: 0,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   title: {
     fontSize: 34,
+    lineHeight: 40,
     fontWeight: '800',
     color: COLORS.primary,
     textAlign: 'center',
@@ -142,10 +196,6 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     textAlign: 'center',
     maxWidth: 480,
-  },
-  printerAnimation: {
-    width: ANIM_W,
-    height: ANIM_H,
   },
   postcardCard: {
     ...CARD_FRAME,
@@ -160,8 +210,8 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
   thankYouLogo: {
-    width: 60,
-    height: 60,
+    width: 44,
+    height: 44,
   },
   newOrderBtn: {
     borderWidth: 1.5,
@@ -182,6 +232,6 @@ const styles = StyleSheet.create({
   countdownText: {
     fontSize: 13,
     color: COLORS.textSecondary,
-    marginTop: SPACING.xs,
+    marginVertical: SPACING.sm
   },
 });

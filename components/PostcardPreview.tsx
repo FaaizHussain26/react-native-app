@@ -2,7 +2,15 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FilteredImage } from './FilteredImage';
 import { FilterType } from '../constants/theme';
-import { CARD_W_IN, CARD_H_IN, BORDER_IN, BOTTOM_IN, LOCATION, YEAR } from '../constants/postcard';
+import {
+  CARD_W_IN,
+  CARD_H_IN,
+  BORDER_IN,
+  BOTTOM_IN,
+  LOCATION,
+  YEAR,
+  CAPTION_MAX_WIDTH_RATIO,
+} from '../constants/postcard';
 
 interface PostcardPreviewProps {
   uri: string | null;
@@ -72,9 +80,16 @@ export const PostcardPreview = ({
         </View>
       </View>
 
-      {/* Bottom border with location text */}
+      {/* Bottom border with location text — capped at CAPTION_MAX_WIDTH_RATIO
+          of the image width; adjustsFontSizeToFit shrinks the font using RN's
+          real text measurement rather than an estimate. */}
       <View style={[styles.bottomBorder, { height: borderBottom }]}>
-        <Text style={[styles.locationText, { fontSize, letterSpacing }]}>
+        <Text
+          style={[styles.locationText, { fontSize, letterSpacing, maxWidth: imageW * CAPTION_MAX_WIDTH_RATIO }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.4}
+        >
           {LOCATION} · {YEAR}
         </Text>
       </View>

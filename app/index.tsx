@@ -47,6 +47,8 @@ export default function HomeScreen() {
   const activeBtnSize = isPortrait ? btnSizePortrait : btnSize;
 
   const handleStart = async () => {
+return          router.push(`/kiosk/print?session=${234}`);
+
     if (isStarting) return;
     setIsStarting(true);
 

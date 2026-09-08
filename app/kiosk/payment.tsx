@@ -27,7 +27,16 @@ import {
   SHADOW,
   buildCssFilter,
 } from '../../constants/theme';
-import { BORDER_IN, BOTTOM_IN, CARD_W_IN, CARD_H_IN, LOCATION, YEAR } from '../../constants/postcard';
+import {
+  BORDER_IN,
+  BOTTOM_IN,
+  CARD_W_IN,
+  CARD_H_IN,
+  LOCATION,
+  YEAR,
+  CAPTION_MAX_WIDTH_RATIO,
+  fitCaptionFontSizePt,
+} from '../../constants/postcard';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 const CARD_HAND_W = Math.min(SW * 0.24, 300);
@@ -101,6 +110,12 @@ export default function PaymentScreen() {
       const isLandscape = orientation === 'landscape';
       const contentWIn = isLandscape ? CARD_H_IN : CARD_W_IN;
       const contentHIn = isLandscape ? CARD_W_IN : CARD_H_IN;
+      const pageWidthIn = orientation === 'landscape' ? CARD_H_IN : CARD_W_IN;
+      const pageHeightIn = orientation === 'landscape' ? CARD_W_IN : CARD_H_IN;
+      const imageWidthIn = pageWidthIn - BORDER_IN * 2;
+      const captionText = `${LOCATION} · ${YEAR}`;
+      const captionFontSizePt = fitCaptionFontSizePt(captionText, imageWidthIn * CAPTION_MAX_WIDTH_RATIO);
+      const captionLetterSpacingPt = captionFontSizePt * 0.1;
       const html = `
 <!DOCTYPE html>
 <html>
@@ -148,9 +163,11 @@ export default function PaymentScreen() {
     align-items: center;
     justify-content: center;
     color: #5A5248;
-    font-size: 14pt;
-    letter-spacing: 2pt;
+    font-size: ${captionFontSizePt}pt;
+    letter-spacing: ${captionLetterSpacingPt}pt;
     text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
   }
   @page { margin: 0; size: ${CARD_W_IN}in ${CARD_H_IN}in; }
 </style>
@@ -163,6 +180,7 @@ export default function PaymentScreen() {
     </div>
     <div class="caption">${LOCATION} · ${YEAR}</div>
   </div>
+  <div class="caption">${captionText}</div>
 </div>
 </body>
 </html>`;
