@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -20,15 +20,16 @@ import PostaFooter from '../../components/PostaFooter';
 import { PostcardPreview } from '../../components/PostcardPreview';
 import { PostcardBack } from '../../components/PostcardBack';
 import { BubbleOption } from '../../components/BubbleOption';
-import { useCropStore } from '../../stores/cropStore';
+import { useCropStore, Orientation, CropRect } from '../../stores/cropStore';
 import { API_BASE_URL } from '../../services/api';
 import { analyzePhoto } from '../../services/session';
 import IdleModal from '../../components/IdleModal';
 import useIdleActivity from '../../hooks/useIdleActivity';
 import { COLORS, FilterType } from '../../constants/theme';
-import { CARD_FRAME, CARD_W_IN, CARD_H_IN } from '../../constants/postcard';
+import { CARD_FRAME, CARD_W_IN, CARD_H_IN, BORDER_IN, BOTTOM_IN } from '../../constants/postcard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
@@ -89,6 +90,10 @@ export default function EditScreen() {
     setOrientation,
     setAutoDetectedOrientation,
     setComingSoonFilter,
+    clearCroppedImage,
+    cropRect,
+    setCropRect,
+    setCroppedImage,
     resetFilters,
     resetAll,
   } = useCropStore();
@@ -116,13 +121,16 @@ export default function EditScreen() {
   // Local cached URI — SvgImage on Android doesn't reliably load remote HTTPS URLs
   const [cachedImageUri, setCachedImageUri] = useState<string | null>(null);
 
+  // Cached unconditionally — not just when there's no crop yet. Cropping and
+  // re-fitting both work from the original photo, so it has to stay on hand
+  // even after a crop exists.
   useEffect(() => {
-    if (croppedImage || !remoteImageUrl) return;
+    if (!remoteImageUrl) return;
     const dest = `${FileSystem.cacheDirectory}session_image_${sessionId}.jpg`;
     FileSystem.downloadAsync(remoteImageUrl, dest)
       .then((res) => setCachedImageUri(res.uri))
       .catch(() => setCachedImageUri(remoteImageUrl)); // fall back to remote on error
-  }, [remoteImageUrl, croppedImage, sessionId]);
+  }, [remoteImageUrl, sessionId]);
 
   const imageUrl = croppedImage ?? cachedImageUri;
 
@@ -185,8 +193,94 @@ export default function EditScreen() {
     flipProgress.value = withTiming(next, { duration: 600 });
   };
 
+  // A crop is inherently orientation-specific: the frame is locked to the
+  // postcard's front-image area, which is 3.25x4.75in in portrait but 5x3in
+  // in landscape. Keeping a portrait crop after a switch to landscape means
+  // print's object-fit: cover center-crops it a second time, down to ~41% of
+  // its height (payment.tsx) — that's what "landscape prints cropped" looks
+  // like.
+  //
+  // Rather than making the customer re-crop, the crop is re-derived from the
+  // original photo at the new ratio: same centre, same area (so the zoom
+  // level they chose is preserved), clamped back inside the photo. Rotating
+  // the cropped file instead would print the photo on its side, and wouldn't
+  // even fit — the two inner areas aren't 90deg rotations of each other
+  // (0.684 vs 1.667; a rotated portrait crop is 1.462).
+  const [isRefitting, setIsRefitting] = useState(false);
+
+  const refitCropTo = useCallback(
+    async (nextOrientation: Orientation, rect: CropRect, source: string) => {
+      const innerW =
+        (nextOrientation === 'landscape' ? CARD_H_IN : CARD_W_IN) - 2 * BORDER_IN;
+      const innerH =
+        (nextOrientation === 'landscape' ? CARD_W_IN : CARD_H_IN) - BORDER_IN - BOTTOM_IN;
+      const targetAspect = innerW / innerH;
+
+      const { width: W, height: H } = await new Promise<{ width: number; height: number }>(
+        (resolve, reject) => Image.getSize(source, (width, height) => resolve({ width, height }), reject),
+      );
+
+      const curW = rect.width * W;
+      const curH = rect.height * H;
+      const centreX = rect.x * W + curW / 2;
+      const centreY = rect.y * H + curH / 2;
+
+      // Same area as the old crop, reshaped to the new ratio, then shrunk if
+      // that overflows the photo on either axis.
+      let w = Math.sqrt(curW * curH * targetAspect);
+      let h = w / targetAspect;
+      if (w > W) {
+        w = W;
+        h = w / targetAspect;
+      }
+      if (h > H) {
+        h = H;
+        w = h * targetAspect;
+      }
+
+      const x = Math.min(Math.max(0, centreX - w / 2), W - w);
+      const y = Math.min(Math.max(0, centreY - h / 2), H - h);
+
+      const originX = Math.round(x);
+      const originY = Math.round(y);
+      const width = Math.min(Math.round(w), W - originX);
+      const height = Math.min(Math.round(h), H - originY);
+
+      const result = await ImageManipulator.manipulateAsync(
+        source,
+        [{ crop: { originX, originY, width, height } }],
+        { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG },
+      );
+
+      setCroppedImage(result.uri);
+      setCropRect({ x: originX / W, y: originY / H, width: width / W, height: height / H });
+    },
+    [setCroppedImage, setCropRect],
+  );
+
+  const handleOrientationChange = (next: Orientation) => {
+    if (next === orientation || isRefitting) return;
+    setOrientation(next);
+
+    const source = cachedImageUri ?? remoteImageUrl;
+    if (!croppedImage || !cropRect || !source) return;
+
+    setIsRefitting(true);
+    refitCropTo(next, cropRect, source)
+      .catch((err: unknown) => {
+        // Leaving a mismatched crop in place would print badly cropped, so
+        // fall back to the uncropped original rather than keeping it.
+        console.error('Failed to re-fit crop to new orientation:', err);
+        clearCroppedImage();
+      })
+      .finally(() => setIsRefitting(false));
+  };
+
   const handleCrop = () => {
-    const cropSource = croppedImage ?? remoteImageUrl;
+    // Always the original, never the already-cropped file: the stored rect is
+    // in the original's coordinate space, and re-cropping a crop would
+    // compound JPEG loss.
+    const cropSource = cachedImageUri ?? remoteImageUrl;
     if (!cropSource) return;
     const encodedUrl = encodeURIComponent(cropSource);
     router.push(`/kiosk/crop?image=${encodedUrl}&session=${sessionId}`);
@@ -277,12 +371,12 @@ console.log("imgUrl:",imageUrl)
                   <BubbleOption
                     label="Portrait"
                     selected={orientation === 'portrait'}
-                    onPress={() => setOrientation('portrait')}
+                    onPress={() => handleOrientationChange('portrait')}
                   />
                   <BubbleOption
                     label="Landscape"
                     selected={orientation === 'landscape'}
-                    onPress={() => setOrientation('landscape')}
+                    onPress={() => handleOrientationChange('landscape')}
                   />
                 </View>
               </View>

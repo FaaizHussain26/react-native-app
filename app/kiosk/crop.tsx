@@ -47,7 +47,8 @@ export default function CropScreen() {
     useLocalSearchParams<{ image: string; session: string }>();
 
   const imageUrl = decodeURIComponent(encodedImageUrl);
-  const { setCroppedImage, resetAll, orientation } = useCropStore();
+  const { setCroppedImage, setCropRect, cropRect, resetAll, orientation } =
+    useCropStore();
 
   const [isCropping, setIsCropping] = useState(false);
 
@@ -198,6 +199,26 @@ export default function CropScreen() {
   // postcard shape allows. Re-runs when the photo loads or the customer
   // flips orientation, both of which change what "largest fit" means.
   useEffect(() => {
+    if (bounds.width === 0 || bounds.height === 0) return;
+
+    // Re-entering the crop screen restores the framing the customer last
+    // chose, rather than resetting to the default. The stored rect is
+    // normalised against this same photo, so it maps straight back onto the
+    // displayed image. It's only trusted when its ratio still matches the
+    // current card shape — an orientation change is re-fitted on the edit
+    // screen, but this guards against a stale rect from any other path.
+    if (cropRect) {
+      const w = cropRect.width * bounds.width;
+      const h = cropRect.height * bounds.height;
+      if (h > 0 && Math.abs(w / h - aspect) < 0.01) {
+        cropW.value = w;
+        cropH.value = h;
+        cropX.value = bounds.left + cropRect.x * bounds.width;
+        cropY.value = bounds.top + cropRect.y * bounds.height;
+        return;
+      }
+    }
+
     let w = bounds.width;
     let h = w / aspect;
     if (h > bounds.height) {
@@ -208,7 +229,7 @@ export default function CropScreen() {
     cropH.value = h;
     cropX.value = bounds.left + (bounds.width - w) / 2;
     cropY.value = bounds.top + (bounds.height - h) / 2;
-  }, [bounds.left, bounds.top, bounds.width, bounds.height, aspect]);
+  }, [bounds.left, bounds.top, bounds.width, bounds.height, aspect, cropRect]);
 
   // Drag the whole frame, clamped so it can never leave the photo.
   const dragGesture = useMemo(
@@ -375,6 +396,15 @@ export default function CropScreen() {
       );
 
       setCroppedImage(result.uri);
+      // Normalised against the original photo, so the crop can later be
+      // re-derived at a different aspect ratio without going through the
+      // already-cropped file.
+      setCropRect({
+        x: cropX0 / naturalW,
+        y: cropY0 / naturalH,
+        width: finalW / naturalW,
+        height: finalH / naturalH,
+      });
       router.back();
     } catch (err) {
       console.error('Crop failed:', err);
@@ -382,7 +412,7 @@ export default function CropScreen() {
     } finally {
       setIsCropping(false);
     }
-  }, [sourceUri, imageSize, imageBounds, setCroppedImage, router]);
+  }, [sourceUri, imageSize, imageBounds, setCroppedImage, setCropRect, router]);
 
   const handleCancel = () => {
     router.back();

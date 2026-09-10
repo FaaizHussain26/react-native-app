@@ -178,9 +178,8 @@ export default function PaymentScreen() {
     <div class="image-area">
       <img src="${printImageSrc}" alt="Postcard" />
     </div>
-    <div class="caption">${LOCATION} · ${YEAR}</div>
+    <div class="caption">${captionText}</div>
   </div>
-  <div class="caption">${captionText}</div>
 </div>
 </body>
 </html>`;

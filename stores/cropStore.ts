@@ -5,8 +5,21 @@ import { FilterType } from '../constants/theme';
 
 export type Orientation = 'portrait' | 'landscape';
 
+// The crop rectangle, normalised (0..1) against the ORIGINAL session photo —
+// never against a previously cropped file. Keeping it in the original's
+// coordinate space is what lets the crop be re-derived at a different aspect
+// ratio (see setOrientation handling in edit.tsx) without compounding
+// quality loss by cropping an already-cropped JPEG.
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface CropState {
   croppedImage: string | null;
+  cropRect: CropRect | null;
   brightness: number;
   contrast: number;
   saturation: number;
@@ -22,6 +35,7 @@ interface CropState {
 
 interface CropActions {
   setCroppedImage: (img: string | null) => void;
+  setCropRect: (rect: CropRect | null) => void;
   setBrightness: (value: number) => void;
   setContrast: (value: number) => void;
   setSaturation: (value: number) => void;
@@ -39,6 +53,7 @@ type CropStore = CropState & CropActions;
 
 const initialState: CropState = {
   croppedImage: null,
+  cropRect: null,
   brightness: 100,
   contrast: 100,
   saturation: 100,
@@ -55,6 +70,8 @@ export const useCropStore = create<CropStore>()(
       ...initialState,
 
       setCroppedImage: (img) => set({ croppedImage: img }),
+
+      setCropRect: (rect) => set({ cropRect: rect }),
 
       setBrightness: (value) => set({ brightness: value }),
 
@@ -75,7 +92,7 @@ export const useCropStore = create<CropStore>()(
 
       setComingSoonFilter: (filter) => set({ comingSoonFilter: filter }),
 
-      clearCroppedImage: () => set({ croppedImage: null }),
+      clearCroppedImage: () => set({ croppedImage: null, cropRect: null }),
 
       resetFilters: () =>
         set({
@@ -86,6 +103,7 @@ export const useCropStore = create<CropStore>()(
           selectedFilter: initialState.selectedFilter,
           comingSoonFilter: initialState.comingSoonFilter,
           croppedImage: null,
+          cropRect: null,
         }),
 
       resetAll: () => set(initialState),
