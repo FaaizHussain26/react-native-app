@@ -50,7 +50,7 @@ export default function PaymentScreen() {
   const router = useRouter();
   const { session: sessionId = '' } = useLocalSearchParams<{ session: string }>();
 
-  const { brightness, contrast, saturation, warmth, selectedFilter, croppedImage, orientation, resetAll } = useCropStore();
+  const { brightness, contrast, saturation, warmth, selectedFilter, croppedImage, cropRect, orientation, resetAll } = useCropStore();
   const { printer, setPrinter } = usePrinterStore();
 
   const [isPrinting, setIsPrinting] = useState(false);
@@ -116,16 +116,32 @@ export default function PaymentScreen() {
       const captionText = `${LOCATION} · ${YEAR}`;
       const captionFontSizePt = fitCaptionFontSizePt(captionText, imageWidthIn * CAPTION_MAX_WIDTH_RATIO);
       const captionLetterSpacingPt = captionFontSizePt * 0.1;
+
+      // expo-print renders this HTML through UIPrintPageRenderer, which maps
+      // the WebView's content to the PDF page at 1 CSS px per point, and the
+      // page is sized in points (ExpoWKPDFRenderer builds the WebView at
+      // pageSize = 306x432pt for a 4.25x6in card). CSS inches, meanwhile, are
+      // always 96px — so laying the card out in `in` made it 408x576 CSS px
+      // inside a 306x432pt page: exactly 4/3 oversized, losing the right and
+      // bottom quarter of every print, cropped photo or not.
+      //
+      // So every physical dimension below is emitted in px at 72 per inch,
+      // matching the point grid the PDF page is actually drawn on. Physical
+      // points and px are 1:1 here, which is why the caption's pt metrics go
+      // out as px unchanged.
+      const PX_PER_IN = 72;
+      const px = (inches: number) => `${(inches * PX_PER_IN).toFixed(3)}px`;
       const html = `
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=${CARD_W_IN * PX_PER_IN}, initial-scale=1">
 <title>Posta Postcard</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
-    width: ${CARD_W_IN}in; height: ${CARD_H_IN}in;
+    width: ${px(CARD_W_IN)}; height: ${px(CARD_H_IN)};
     position: relative;
     overflow: hidden;
     background: white;
@@ -138,33 +154,41 @@ export default function PaymentScreen() {
   .rotator {
     position: absolute;
     top: 50%; left: 50%;
-    width: ${contentWIn}in; height: ${contentHIn}in;
+    width: ${px(contentWIn)}; height: ${px(contentHIn)};
     transform: translate(-50%, -50%) rotate(${isLandscape ? 90 : 0}deg);
   }
   .postcard {
     width: 100%; height: 100%;
-    padding: ${BORDER_IN}in ${BORDER_IN}in 0 ${BORDER_IN}in;
+    padding: ${px(BORDER_IN)} ${px(BORDER_IN)} 0 ${px(BORDER_IN)};
     display: flex;
     flex-direction: column;
   }
   .image-area {
     flex: 1; min-height: 0; overflow: hidden;
+    position: relative;
   }
+  /* Absolutely positioned rather than width/height:100%. As a percentage
+     height inside a flex item, height:100% is not reliably resolvable in
+     WKWebView's print formatter — where it falls back to auto the image
+     renders at its intrinsic height and the bottom is clipped by the
+     overflow:hidden above. inset:0 pins it to the slot unconditionally. */
   .image-area img {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
     width: 100%; height: 100%;
     object-fit: cover;
     display: block;
     filter: ${cssFilter};
   }
   .caption {
-    height: ${BOTTOM_IN}in;
+    height: ${px(BOTTOM_IN)};
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     color: #5A5248;
-    font-size: ${captionFontSizePt}pt;
-    letter-spacing: ${captionLetterSpacingPt}pt;
+    font-size: ${captionFontSizePt}px;
+    letter-spacing: ${captionLetterSpacingPt}px;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
