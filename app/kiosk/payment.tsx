@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import * as Print from 'expo-print';
 import { File } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import PostaFooter from '../../components/PostaFooter';
@@ -93,9 +95,51 @@ export default function PaymentScreen() {
       // which lives in Caches) silently fails to load as an <img> subresource
       // and prints blank. Inline it as a data URI instead; the remote
       // http(s) fallback loads fine as-is and doesn't need this.
-      const printImageSrc = croppedImage
-        ? `data:image/jpeg;base64,${await new File(croppedImage).base64()}`
-        : imageUrl;
+      const isLandscape = orientation === 'landscape';
+
+      // Landscape used to be done by rotating the whole card with a CSS
+      // transform inside the portrait sheet. That kept cropping, and the
+      // reason is structural: the rotated card's LAYOUT box is CARD_H_IN
+      // (6in) wide inside a CARD_W_IN (4.25in) page. A transform moves the
+      // painted result but not the layout, so the document stayed wider than
+      // the page and UIViewPrintFormatter — which sizes the print from the
+      // content box, not from what's painted — fit that oversized box onto
+      // the sheet and cut the rest. No amount of clipping fixed it.
+      //
+      // So there is no transform any more. The photo is rotated as a real
+      // image, and the card is laid out directly in the sheet's own portrait
+      // coordinates, using exactly the structure that already prints
+      // correctly in portrait. Rotating the card 90deg clockwise maps its
+      // edges onto the sheet like this:
+      //
+      //   card top border (0.5in)     -> sheet RIGHT  (0.5in)
+      //   card bottom/caption (0.75in)-> sheet LEFT   (0.75in)
+      //   card left border (0.5in)    -> sheet TOP    (0.5in)
+      //   card right border (0.5in)   -> sheet BOTTOM (0.5in)
+      //
+      // leaving an image slot of 3in x 5in on the sheet — which is the 5x3
+      // landscape slot turned on its side, so the rotated photo drops into it
+      // with nothing to crop. The caption sits in the left band and is turned
+      // with writing-mode rather than a transform, so it has no layout box to
+      // overflow either.
+      let printSourceUri = croppedImage;
+      if (!printSourceUri) {
+        // expo-print's WebView can't reliably pull a remote <img> in time, so
+        // the photo is always inlined as a data URI — which means it always
+        // has to be a local file first.
+        const dest = `${FileSystem.cacheDirectory}print_src_${Date.now()}.jpg`;
+        const download = await FileSystem.downloadAsync(imageUrl, dest);
+        printSourceUri = download.uri;
+      }
+      if (isLandscape) {
+        const rotated = await ImageManipulator.manipulateAsync(
+          printSourceUri,
+          [{ rotate: 90 }],
+          { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG },
+        );
+        printSourceUri = rotated.uri;
+      }
+      const printImageSrc = `data:image/jpeg;base64,${await new File(printSourceUri).base64()}`;
 
       const cssFilter = buildCssFilter(selectedFilter, { brightness, contrast, saturation, warmth });
 
@@ -105,105 +149,79 @@ export default function PaymentScreen() {
       // orientation flag) makes the Epson driver hunt for a 6in-wide source it
       // doesn't have and fall back to its CD/DVD tray template — the printer
       // then prompts for the CD tray instead of pulling from the rear feed.
-      // So landscape is done entirely inside the page: lay the artwork out at
-      // landscape dimensions and rotate it 90deg within the portrait sheet.
-      const isLandscape = orientation === 'landscape';
-      const contentWIn = isLandscape ? CARD_H_IN : CARD_W_IN;
-      const contentHIn = isLandscape ? CARD_W_IN : CARD_H_IN;
-      const pageWidthIn = orientation === 'landscape' ? CARD_H_IN : CARD_W_IN;
-      const pageHeightIn = orientation === 'landscape' ? CARD_W_IN : CARD_H_IN;
+      const pageWidthIn = isLandscape ? CARD_H_IN : CARD_W_IN;
+      const pageHeightIn = isLandscape ? CARD_W_IN : CARD_H_IN;
       const imageWidthIn = pageWidthIn - BORDER_IN * 2;
       const captionText = `${LOCATION} · ${YEAR}`;
-      const captionFontSizePt = fitCaptionFontSizePt(captionText, imageWidthIn * CAPTION_MAX_WIDTH_RATIO);
+      // fitCaptionFontSizePt sizes the caption to fill the border width it's
+      // allowed; on the printed card that reads too large, so it goes out at
+      // half. Letter spacing is derived below and scales with it.
+      const CAPTION_PRINT_SCALE = 0.5;
+      const captionFontSizePt =
+        fitCaptionFontSizePt(captionText, imageWidthIn * CAPTION_MAX_WIDTH_RATIO) *
+        CAPTION_PRINT_SCALE;
       const captionLetterSpacingPt = captionFontSizePt * 0.1;
 
-      // expo-print renders this HTML through UIPrintPageRenderer, which maps
-      // the WebView's content to the PDF page at 1 CSS px per point, and the
-      // page is sized in points (ExpoWKPDFRenderer builds the WebView at
-      // pageSize = 306x432pt for a 4.25x6in card). CSS inches, meanwhile, are
-      // always 96px — so laying the card out in `in` made it 408x576 CSS px
-      // inside a 306x432pt page: exactly 4/3 oversized, losing the right and
-      // bottom quarter of every print, cropped photo or not.
-      //
-      // So every physical dimension below is emitted in px at 72 per inch,
-      // matching the point grid the PDF page is actually drawn on. Physical
-      // points and px are 1:1 here, which is why the caption's pt metrics go
-      // out as px unchanged.
-      const PX_PER_IN = 72;
-      const px = (inches: number) => `${(inches * PX_PER_IN).toFixed(3)}px`;
+      const imageBlock = `<div class="image-area"><img src="${printImageSrc}" alt="Postcard" /></div>`;
+      const captionBlock = isLandscape
+        ? `<div class="caption"><span>${captionText}</span></div>`
+        : `<div class="caption">${captionText}</div>`;
+
       const html = `
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=${CARD_W_IN * PX_PER_IN}, initial-scale=1">
 <title>Posta Postcard</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
-    width: ${px(CARD_W_IN)}; height: ${px(CARD_H_IN)};
-    position: relative;
-    overflow: hidden;
+    width: 100%; height: 100%;
     background: white;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  /* Centred on the sheet, sized to the artwork's own orientation, then
-     rotated into place. A ${CARD_H_IN}x${CARD_W_IN}in box rotated 90deg
-     covers the ${CARD_W_IN}x${CARD_H_IN}in sheet exactly. */
-  .rotator {
-    position: absolute;
-    top: 50%; left: 50%;
-    width: ${px(contentWIn)}; height: ${px(contentHIn)};
-    transform: translate(-50%, -50%) rotate(${isLandscape ? 90 : 0}deg);
-  }
   .postcard {
     width: 100%; height: 100%;
-    padding: ${px(BORDER_IN)} ${px(BORDER_IN)} 0 ${px(BORDER_IN)};
+    padding: ${
+      isLandscape
+        ? `${BORDER_IN}in ${BORDER_IN}in ${BORDER_IN}in 0`
+        : `${BORDER_IN}in ${BORDER_IN}in 0 ${BORDER_IN}in`
+    };
     display: flex;
-    flex-direction: column;
+    flex-direction: ${isLandscape ? 'row' : 'column'};
   }
   .image-area {
-    flex: 1; min-height: 0; overflow: hidden;
-    position: relative;
+    flex: 1; min-width: 0; min-height: 0; overflow: hidden;
   }
-  /* Absolutely positioned rather than width/height:100%. As a percentage
-     height inside a flex item, height:100% is not reliably resolvable in
-     WKWebView's print formatter — where it falls back to auto the image
-     renders at its intrinsic height and the bottom is clipped by the
-     overflow:hidden above. inset:0 pins it to the slot unconditionally. */
   .image-area img {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
     width: 100%; height: 100%;
     object-fit: cover;
     display: block;
     filter: ${cssFilter};
   }
   .caption {
-    height: ${px(BOTTOM_IN)};
+    ${isLandscape ? `width: ${BOTTOM_IN}in;` : `height: ${BOTTOM_IN}in;`}
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     color: #5A5248;
-    font-size: ${captionFontSizePt}px;
-    letter-spacing: ${captionLetterSpacingPt}px;
+    font-size: ${captionFontSizePt}pt;
+    letter-spacing: ${captionLetterSpacingPt}pt;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
-  }
+  }${isLandscape ? `
+  /* Turned with writing-mode, not a transform: this keeps the text's layout
+     box inside the page the way a rotate() would not. */
+  .caption span { writing-mode: vertical-rl; }` : ''}
   @page { margin: 0; size: ${CARD_W_IN}in ${CARD_H_IN}in; }
 </style>
 </head>
 <body>
-<div class="rotator">
-  <div class="postcard">
-    <div class="image-area">
-      <img src="${printImageSrc}" alt="Postcard" />
-    </div>
-    <div class="caption">${captionText}</div>
-  </div>
+<div class="postcard">
+  ${isLandscape ? captionBlock + imageBlock : imageBlock + captionBlock}
 </div>
 </body>
 </html>`;
@@ -211,7 +229,7 @@ export default function PaymentScreen() {
       // Always the portrait media size, and deliberately no `orientation` —
       // the rotation already happened in the HTML above. Every job the printer
       // sees is a plain 4.25 x 6in page from the rear feed,
-      // whichever way the customer's postcard is turned. See the .rotator note.
+      // whichever way the customer's postcard is turned.
       await Print.printAsync({
         html,
         printerUrl: activePrinter.url,
