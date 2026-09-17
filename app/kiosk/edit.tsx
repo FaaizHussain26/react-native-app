@@ -65,6 +65,27 @@ const FILTERS = [
 
 const COMING_SOON_FILTERS = ['Filter 1', 'Filter 2', 'Filter 3'];
 
+// TEMPORARY DIAGNOSTIC — set back to false once the question below is answered.
+//
+// Switching Portrait <-> Landscape leaves parts of the screen unrepainted: the
+// panel keeps stale pixels, and in the worst captures the footer bar and the
+// progress header are painted only partway across. Navigating away and back
+// clears it, so the view tree is correct and this is the compositor failing to
+// invalidate — not a layout bug.
+//
+// The card is the only thing here that gets its own compositing context: two
+// faces stacked absolutely, each with backfaceVisibility:'hidden' and a
+// Reanimated rotateY. A layout change under a live 3D context is a known way to
+// lose invalidation on iOS, and this screen already has history with that race
+// (see the frontStyle comment below). This switch drops the 3D entirely and
+// renders one plain face at a time.
+//
+//   clean with this true        -> the flip's 3D context is the cause
+//   still broken with this true -> it is not the card; suspect the screen root
+//
+// While it is true the flip button swaps faces instantly instead of animating.
+const DISABLE_CARD_FLIP_3D = true;
+
 export default function EditScreen() {
   const router = useRouter();
 
@@ -319,33 +340,62 @@ console.log("imgUrl:",imageUrl)
             <View style={[styles.cardWrapper, { width: CARD_W + 36, height: CARD_H + 36 }]}>
               <View style={{ width: CARD_W, height: CARD_H }}>
 
-                {/* FRONT */}
-                <Animated.View
-                  style={[styles.postcard, styles.cardFace, { width: CARD_W, height: CARD_H }, frontStyle]}
-                >
-                  <PostcardPreview
-                    uri={imageUrl}
-                    filter={safeFilter}
-                    brightness={safeBrightness}
-                    contrast={safeContrast}
-                    saturation={safeSaturation}
-                    warmth={safeWarmth}
-                    width={CARD_W - 16}
-                    height={CARD_H - 16}
-                    orientation={orientation}
-                  />
-                </Animated.View>
+                {DISABLE_CARD_FLIP_3D ? (
+                  /* Diagnostic: one face at a time, no rotateY, no
+                     backfaceVisibility, no Reanimated — so the card never
+                     gets its own 3D compositing context. */
+                  <View style={[styles.postcard, styles.cardFaceFlat, { width: CARD_W, height: CARD_H }]}>
+                    {isFlipped ? (
+                      <PostcardBack
+                        width={CARD_W - 16}
+                        height={CARD_H - 16}
+                        orientation={orientation}
+                      />
+                    ) : (
+                      <PostcardPreview
+                        uri={imageUrl}
+                        filter={safeFilter}
+                        brightness={safeBrightness}
+                        contrast={safeContrast}
+                        saturation={safeSaturation}
+                        warmth={safeWarmth}
+                        width={CARD_W - 16}
+                        height={CARD_H - 16}
+                        orientation={orientation}
+                      />
+                    )}
+                  </View>
+                ) : (
+                  <>
+                    {/* FRONT */}
+                    <Animated.View
+                      style={[styles.postcard, styles.cardFace, { width: CARD_W, height: CARD_H }, frontStyle]}
+                    >
+                      <PostcardPreview
+                        uri={imageUrl}
+                        filter={safeFilter}
+                        brightness={safeBrightness}
+                        contrast={safeContrast}
+                        saturation={safeSaturation}
+                        warmth={safeWarmth}
+                        width={CARD_W - 16}
+                        height={CARD_H - 16}
+                        orientation={orientation}
+                      />
+                    </Animated.View>
 
-                {/* BACK */}
-                <Animated.View
-                  style={[styles.postcard, styles.cardFace, { width: CARD_W, height: CARD_H }, backStyle]}
-                >
-                  <PostcardBack
-                    width={CARD_W - 16}
-                    height={CARD_H - 16}
-                    orientation={orientation}
-                  />
-                </Animated.View>
+                    {/* BACK */}
+                    <Animated.View
+                      style={[styles.postcard, styles.cardFace, { width: CARD_W, height: CARD_H }, backStyle]}
+                    >
+                      <PostcardBack
+                        width={CARD_W - 16}
+                        height={CARD_H - 16}
+                        orientation={orientation}
+                      />
+                    </Animated.View>
+                  </>
+                )}
               </View>
 
               {/* FLIP — floating circle bottom-right */}
@@ -507,6 +557,9 @@ const styles = StyleSheet.create({
   postcard: CARD_FRAME,
   // Both faces stack on the same spot; only the rotateY differs (see frontStyle).
   cardFace: { position: 'absolute', backfaceVisibility: 'hidden' },
+  // Diagnostic counterpart to cardFace, minus anything that starts a 3D
+  // compositing context. See DISABLE_CARD_FLIP_3D.
+  cardFaceFlat: { position: 'absolute' },
 
   imageArea: { justifyContent: 'center', alignItems: 'center' },
   imagePlaceholder: { justifyContent: 'center', alignItems: 'center' },
@@ -534,6 +587,7 @@ const styles = StyleSheet.create({
   flipLabel: { fontSize: 9, color: COLORS.textPrimary, fontWeight: '500', marginTop: 3 },
 
   panel: {
+    zIndex:999,
     width: 360,
     backgroundColor: '#FFFFFF',
     borderRadius: 20,

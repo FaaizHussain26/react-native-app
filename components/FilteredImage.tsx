@@ -152,6 +152,11 @@ const cssFilterStringToMatrix = (css: string): ColorMatrix | null => {
 const namedFilterMatrix = (filter: FilterType): ColorMatrix | null =>
   cssFilterStringToMatrix(FILTER_CSS[filter] ?? '');
 
+// Ruled out as the cause of the edit-screen repaint artifact: with this true
+// (no SVG <Filter> mounted at all) rotating still corrupted the screen. Kept
+// only as a quick way to take react-native-svg's filter out of the picture.
+const DISABLE_SVG_FILTER = false;
+
 export const FilteredImage = ({
   uri,
   filter,
@@ -180,7 +185,7 @@ export const FilteredImage = ({
     matrix = matrix ? multiplyColorMatrices(namedMatrix, matrix) : namedMatrix;
   }
 
-  const hasColorFilter = matrix !== null;
+  const hasColorFilter = !DISABLE_SVG_FILTER && matrix !== null;
 
   // Brightness overlay: < 100 darkens (black overlay), > 100 lightens (white overlay)
   const brightnessOffset = brightness - 100; // -50 to +50
@@ -189,7 +194,11 @@ export const FilteredImage = ({
   const showOverlay = Math.abs(brightnessOffset) > 1;
 
   return (
-    <View style={{ width, height }}>
+    // overflow:hidden so nothing the SVG paints can leak past the image area.
+    // The card face this sits inside carries a rotateY (the flip), and CALayer
+    // clipping is unreliable across a 3D transform, so the clip has to also
+    // exist on a plain 2D ancestor right next to the SVG.
+    <View style={{ width, height, overflow: 'hidden' }}>
       <Svg width={width} height={height}>
         {hasColorFilter && (
           <Defs>
