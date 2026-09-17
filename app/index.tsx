@@ -17,7 +17,7 @@ import { COLORS, SPACING } from '../constants/theme';
 
 const POSTCARD_RATIO = 1944 / 2080;
 const FOOTER_HEIGHT_EST = 84;
-
+  
 export default function HomeScreen() {
   const router = useRouter();
   const { width: SW, height: SH } = useWindowDimensions();
